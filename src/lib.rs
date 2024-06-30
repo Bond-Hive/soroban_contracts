@@ -10,6 +10,7 @@ use token::create_contract;
 
 pub(crate) const DAY_IN_LEDGERS: u32 = 17280;
 pub(crate) const MAX_TTL: u32 = 3110400;
+pub(crate) const DECIMALS: u32 = 7;
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
@@ -26,6 +27,7 @@ pub enum DataKey {
     QuoteExpiration = 9,
     QuotePeriod = 10,
     Treasury = 11,
+    MinDeposit = 12,
 }
 
 impl TryFromVal<Env, DataKey> for Val {
@@ -104,6 +106,13 @@ fn get_total_reserve(e: &Env) -> Result<i128, VaultError> {
     e.storage()
         .instance()
         .get(&DataKey::TotalReserve)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_min_deposit(e: &Env) -> Result<u128, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::MinDeposit)
         .ok_or(VaultError::NotInitialized)
 }
 
@@ -197,6 +206,10 @@ fn put_treasury(e: &Env, treasury: Address) {
     e.storage().instance().set(&DataKey::Treasury, &treasury)
 }
 
+fn put_min_deposit(e: &Env, amount: u128) {
+    e.storage().instance().set(&DataKey::MinDeposit, &amount)
+}
+
 fn burn_shares(e: &Env, amount: i128) -> Result<(), VaultError> {
     let total = get_total_shares(e)?;
     let share_contract_id = get_token_share(e)?;
@@ -241,7 +254,8 @@ pub trait VaultTrait {
         end_time: u64,
         quote_period: u64,
         treasury: Address,
-    ) -> Result<(), VaultError>;
+        min_deposit: u128,
+    );
 
     // Returns the token contract address for the vault share token
     fn bond_id(e: Env) -> Result<Address, VaultError>;
@@ -291,10 +305,8 @@ impl VaultTrait for Vault {
         end_time: u64,
         quote_period: u64,
         treasury: Address,
-    ) -> Result<(), VaultError> {
-        if get_start_time(&e)? > 0 {
-            return Err(VaultError::AlreadyInitialized);
-        }
+        min_deposit: u128,
+    ) {
         let share_contract_id = create_contract(&e, token_wasm_hash, &token);
         token::Client::new(&e, &share_contract_id).initialize(
             &e.current_contract_address(),
@@ -314,10 +326,9 @@ impl VaultTrait for Vault {
         put_current_quote(&e, 0);
         put_quote_period(&e, quote_period);
         put_treasury(&e, treasury);
+        put_min_deposit(&e, min_deposit);
 
         e.events().publish((symbol_short!("VAULT"), symbol_short!("init")), (e.current_contract_address(), start_time, end_time));
-
-        Ok(())
     }
 
     fn quote(e: Env) -> Result<i128, VaultError> {
@@ -358,11 +369,12 @@ impl VaultTrait for Vault {
         if time(&e) < get_start_time(&e)? {
             return Err(VaultError::NotOpenYet);
         }
+        if amount < get_min_deposit(&e)? as i128 {
+            return Err(VaultError::InvalidAmount);
+        }
 
         let quote = get_current_quote(&e)?;
-
-        let quantity = amount * quote;
-
+        let quantity = amount * quote / 10i128.pow(DECIMALS);
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&from, &get_treasury(&e)?, &amount);
 
