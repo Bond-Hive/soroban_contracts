@@ -3,9 +3,12 @@
 mod token;
 
 use soroban_sdk::{
-    contract, contractimpl, Address, BytesN, ConversionError, Env, IntoVal, TryFromVal, Val,
+    contract, contracterror, contractimpl, Address, BytesN, ConversionError, Env, IntoVal, TryFromVal, Val, symbol_short,
 };
+
 use token::create_contract;
+
+pub(crate) const DAY_IN_LEDGERS: u32 = 17280;
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
@@ -22,6 +25,7 @@ pub enum DataKey {
     QuoteExpiration = 9,
     QuotePeriod = 10,
     Treasury = 11,
+    MaxTtl = 12,
 }
 
 impl TryFromVal<Env, DataKey> for Val {
@@ -32,67 +36,127 @@ impl TryFromVal<Env, DataKey> for Val {
     }
 }
 
-fn get_token(e: &Env) -> Address {
-    e.storage().instance().get(&DataKey::Token).unwrap()
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum VaultError {
+    InvalidAmount = 1,
+    NotInitialized = 2,
+    AlreadyInitialized = 3,
+    MaturityReached = 4,
+    MaturityNotReached = 5,
+    NotOpenYet = 6,
+    QuoteRequired = 7,
+    TotalReserveNotSet = 8,
+    TotalReserveAlreadySet = 9,
 }
 
-fn get_token_share(e: &Env) -> Address {
-    e.storage().instance().get(&DataKey::TokenShare).unwrap()
-}
-
-fn get_admin(e: &Env) -> Address {
-    e.storage().instance().get(&DataKey::Admin).unwrap()
-}
-
-fn get_start_time(e: &Env) -> u64 {
-    e.storage().instance().get(&DataKey::StartTime).unwrap()
-}
-
-fn get_end_time(e: &Env) -> u64 {
-    e.storage().instance().get(&DataKey::EndTime).unwrap()
-}
-
-fn get_total_shares(e: &Env) -> i128 {
-    e.storage().instance().get(&DataKey::TotalShares).unwrap()
-}
-
-fn get_reserve(e: &Env) -> i128 {
-    e.storage().instance().get(&DataKey::Reserve).unwrap()
-}
-
-fn get_total_reserve(e: &Env) -> i128 {
-    e.storage().instance().get(&DataKey::TotalReserve).unwrap()
-}
-
-fn get_current_quote(e: &Env) -> i128 {
-    let current_quote = e.storage().instance().get(&DataKey::CurrentQuote).unwrap();
-    let quote_expiration = e.storage()
+fn get_max_ttl(e: &Env) -> Result<u32, VaultError> {
+    e.storage()
         .instance()
-        .get(&DataKey::QuoteExpiration)
-        .unwrap();
+        .get(&DataKey::MaxTtl)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_token(e: &Env) -> Result<Address, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::Token)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_token_share(e: &Env) -> Result<Address, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::TokenShare)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_admin(e: &Env) -> Result<Address, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_start_time(e: &Env) -> Result<u64, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::StartTime)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_end_time(e: &Env) -> Result<u64, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::EndTime)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_total_shares(e: &Env) -> Result<i128, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::TotalShares)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_reserve(e: &Env) -> Result<i128, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::Reserve)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_total_reserve(e: &Env) -> Result<i128, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::TotalReserve)
+        .ok_or(VaultError::NotInitialized)
+}
+
+fn get_current_quote(e: &Env) -> Result<i128, VaultError> {
+    let current_quote = e.storage().instance().get(&DataKey::CurrentQuote).ok_or(VaultError::NotInitialized)?;
+    let quote_expiration = e.storage().instance().get(&DataKey::QuoteExpiration).ok_or(VaultError::NotInitialized)?;
 
     // Check they are non-zero
     if current_quote != 0 && quote_expiration != 0 {
         if time(&e) <= quote_expiration {
-            current_quote
+            Ok(current_quote)
         } else {
-            0
+            return Err(VaultError::QuoteRequired);
         }
     } else {
-        0
+        return Err(VaultError::QuoteRequired);
     }
 }
 
-fn get_quote_period(e: &Env) -> u64 {
-    e.storage().instance().get(&DataKey::QuotePeriod).unwrap()
+fn get_quote_period(e: &Env) -> Result<u64, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::QuotePeriod)
+        .ok_or(VaultError::NotInitialized)
 }
 
-fn get_treasury(e: &Env) -> Address {
-    e.storage().instance().get(&DataKey::Treasury).unwrap()
+fn get_treasury(e: &Env) -> Result<Address, VaultError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::Treasury)
+        .ok_or(VaultError::NotInitialized)
 }
 
 fn time(e: &Env) -> u64 {
     e.ledger().timestamp()
+}
+
+fn extend_instance_ttl(e: &Env) -> Result<(), VaultError> {
+    e.storage()
+        .instance()
+        .extend_ttl(get_max_ttl(e)? - DAY_IN_LEDGERS, get_max_ttl(e)?);
+    Ok(())
+}
+
+fn put_max_ttl(e: &Env, ttl: u32) {
+    e.storage().instance().set(&DataKey::MaxTtl, &ttl)
 }
 
 fn put_token(e: &Env, contract: Address) {
@@ -119,9 +183,10 @@ fn put_current_quote(e: &Env, amount: i128) {
     e.storage().instance().set(&DataKey::CurrentQuote, &amount)
 }
 
-fn put_quote_expiration(e: &Env) {
-    let time = time(e) + get_quote_period(e);
-    e.storage().instance().set(&DataKey::QuoteExpiration, &time)
+fn put_quote_expiration(e: &Env) -> Result<(), VaultError> {
+    let time = time(e) + get_quote_period(e)?;
+    e.storage().instance().set(&DataKey::QuoteExpiration, &time);
+    Ok(())
 }
 
 fn put_quote_period(e: &Env, period: u64) {
@@ -144,26 +209,36 @@ fn put_treasury(e: &Env, treasury: Address) {
     e.storage().instance().set(&DataKey::Treasury, &treasury)
 }
 
-fn burn_shares(e: &Env, amount: i128) {
-    let total = get_total_shares(e);
-    let share_contract_id = get_token_share(e);
+fn burn_shares(e: &Env, amount: i128) -> Result<(), VaultError> {
+    let total = get_total_shares(e)?;
+    let share_contract_id = get_token_share(e)?;
 
     token::Client::new(e, &share_contract_id).burn(&e.current_contract_address(), &amount);
     put_total_shares(e, total - amount);
+    
+    e.events().publish((symbol_short!("SHARES"), symbol_short!("burned")), amount);
+    
+    Ok(())
 }
 
-fn mint_shares(e: &Env, to: Address, amount: i128) {
-    let total = get_total_shares(e);
-    let share_contract_id = get_token_share(e);
+fn mint_shares(e: &Env, to: Address, amount: i128) -> Result<(), VaultError> {
+    let total = get_total_shares(e)?;
+    let share_contract_id = get_token_share(e)?;
 
     token::Client::new(e, &share_contract_id).mint(&to, &amount);
 
     put_total_shares(e, total + amount);
+    
+    e.events().publish((symbol_short!("SHARES"), symbol_short!("minted")), (to, amount));
+
+    Ok(())
 }
 
-fn check_nonnegative_amount(amount: i128) {
+fn check_nonnegative_amount(amount: i128) -> Result<(), VaultError> {
     if amount < 0 {
-        panic!("negative amount is not allowed: {}", amount)
+        Err(VaultError::InvalidAmount)
+    } else {
+        Ok(())
     }
 }
 
@@ -178,40 +253,40 @@ pub trait VaultTrait {
         end_time: u64,
         quote_period: u64,
         treasury: Address,
-    );
+    ) -> Result<(), VaultError>;
 
     // Returns the token contract address for the vault share token
-    fn bond_id(e: Env) -> Address;
+    fn bond_id(e: Env) -> Result<Address, VaultError>;
 
     // Deposits token. Also mints vault shares for the `from` Identifier. The amount minted
     // is determined based on the difference between the reserves stored by this contract, and
     // the actual balance of token for this contract.
-    fn deposit(e: Env, from: Address, amount: i128) -> i128;
+    fn deposit(e: Env, from: Address, amount: i128) -> Result<i128, VaultError>;
 
     // transfers `amount` of vault share tokens to this contract, burns all pools share tokens in this contracts, and sends the
     // corresponding amount of token to `to`.
     // Returns amount of token withdrawn
-    fn withdraw(e: Env, to: Address, amount: i128) -> i128;
+    fn withdraw(e: Env, to: Address, amount: i128) -> Result<i128, VaultError>;
 
-    fn reserves(e: Env) -> i128;
+    fn reserves(e: Env) -> Result<i128, VaultError>;
 
-    fn admin(e: Env) -> Address;
+    fn admin(e: Env) -> Result<Address, VaultError>;
 
-    fn maturity(e: Env) -> u64;
+    fn maturity(e: Env) -> Result<u64, VaultError>;
 
-    fn total_bonds(e: Env) -> i128;
+    fn total_bonds(e: Env) -> Result<i128, VaultError>;
 
-    fn treasury_account(e: Env) -> Address;
+    fn treasury_account(e: Env) -> Result<Address, VaultError>;
 
-    fn quote(e: Env) -> i128;
+    fn quote(e: Env) -> Result<i128, VaultError>;
 
-    fn set_quote(e: Env, amount: i128);
+    fn set_quote(e: Env, amount: i128) -> Result<(), VaultError>;
 
-    fn set_total_reserve(e: Env, amount: i128);
+    fn set_total_reserve(e: Env, amount: i128) -> Result<(), VaultError>;
 
-    fn set_treasury(e: Env, treasury: Address);
+    fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError>;
 
-    fn new_owner(e: Env) -> Address;
+    fn new_owner(e: Env, new_admin: Address) -> Result<(), VaultError>;
 }
 
 #[contract]
@@ -228,9 +303,9 @@ impl VaultTrait for Vault {
         end_time: u64,
         quote_period: u64,
         treasury: Address,
-    ) {
-        if get_start_time(&e) > 0 {
-            panic!("already initialized")
+    ) -> Result<(), VaultError> {
+        if get_start_time(&e)? > 0 {
+            return Err(VaultError::AlreadyInitialized);
         }
         let share_contract_id = create_contract(&e, token_wasm_hash, &token);
         token::Client::new(&e, &share_contract_id).initialize(
@@ -240,6 +315,7 @@ impl VaultTrait for Vault {
             &"VST".into_val(&e),
         );
 
+        put_max_ttl(&e, e.storage().max_ttl());
         put_token(&e, token);
         put_token_share(&e, share_contract_id.try_into().unwrap());
         put_admin(&e, admin);
@@ -251,132 +327,157 @@ impl VaultTrait for Vault {
         put_current_quote(&e, 0);
         put_quote_period(&e, quote_period);
         put_treasury(&e, treasury);
+
+        e.events().publish((symbol_short!("VAULT"), symbol_short!("init")), (e.current_contract_address(), start_time, end_time));
+
+        Ok(())
     }
 
-    fn quote(e: Env) -> i128 {
+    fn quote(e: Env) -> Result<i128, VaultError> {
+        extend_instance_ttl(&e)?;
         get_current_quote(&e)
     }
 
-    fn set_quote(e: Env, amount: i128) {
-        let admin = get_admin(&e);
+    fn set_quote(e: Env, amount: i128) -> Result<(), VaultError> {
+        let admin = get_admin(&e)?;
         admin.require_auth();
 
-        check_nonnegative_amount(amount);
+        check_nonnegative_amount(amount)?;
+        extend_instance_ttl(&e)?;
         put_current_quote(&e, amount);
-        put_quote_expiration(&e);
+        put_quote_expiration(&e)?;
+        
+        e.events().publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
+        
+        Ok(())
     }
 
-    fn bond_id(e: Env) -> Address {
+    fn bond_id(e: Env) -> Result<Address, VaultError> {
+        extend_instance_ttl(&e)?;
         get_token_share(&e)
     }
 
-    fn deposit(e: Env, from: Address, amount: i128) -> i128 {
+    fn deposit(e: Env, from: Address, amount: i128) -> Result<i128, VaultError> {
         // Depositor needs to authorize the deposit
         from.require_auth();
 
-        check_nonnegative_amount(amount);
+        check_nonnegative_amount(amount)?;
+        extend_instance_ttl(&e)?;
 
-        if time(&e) > get_end_time(&e) {
-            panic!("maturity reached")
+        if time(&e) > get_end_time(&e)? {
+            return Err(VaultError::MaturityReached);
         }
 
-        if time(&e) < get_start_time(&e) {
-            panic!("not open yet")
+        if time(&e) < get_start_time(&e)? {
+            return Err(VaultError::NotOpenYet);
         }
 
-        let quote = get_current_quote(&e);
-        if quote == 0 {
-            panic!("request a new quote")
-        }
-        
+        let quote = get_current_quote(&e)?;
+
         let quantity = amount * quote;
 
-        let token_client = token::Client::new(&e, &get_token(&e));
-        token_client.transfer(&from, &get_treasury(&e), &amount);
+        let token_client = token::Client::new(&e, &get_token(&e)?);
+        token_client.transfer(&from, &get_treasury(&e)?, &amount);
 
-        mint_shares(&e, from, quantity);
-        put_reserve(&e, get_reserve(&e) + amount);
-
-        quantity
+        mint_shares(&e, from, quantity)?;
+        put_reserve(&e, get_reserve(&e)? + amount);
+        
+        Ok(quantity)
     }
 
-    fn withdraw(e: Env, to: Address, amount: i128) -> i128 {
+    fn withdraw(e: Env, to: Address, amount: i128) -> Result<i128, VaultError> {
         to.require_auth();
 
-        check_nonnegative_amount(amount);
+        check_nonnegative_amount(amount)?;
+        extend_instance_ttl(&e)?;
 
-        if time(&e) < get_end_time(&e) {
-            panic!("maturity not reached")
+        if time(&e) < get_end_time(&e)? {
+            return Err(VaultError::MaturityNotReached);
         }
 
-        let total_reserve = get_total_reserve(&e);
+        let total_reserve = get_total_reserve(&e)?;
         if total_reserve == 0 {
-            panic!("total reserve not set")
+            return Err(VaultError::TotalReserveNotSet);
         }
 
         // First transfer the vault shares that need to be redeemed
-        let share_token_client = token::Client::new(&e, &get_token_share(&e));
+        let share_token_client = token::Client::new(&e, &get_token_share(&e)?);
         share_token_client.transfer(&to, &e.current_contract_address(), &amount);
 
         // Calculate total amount including yield
-        let asset_amount = total_reserve / get_total_shares(&e) * amount;
+        let asset_amount = total_reserve / get_total_shares(&e)? * amount;
 
-        let token_client = token::Client::new(&e, &get_token(&e));
+        let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&e.current_contract_address(), &to, &asset_amount);
 
-        burn_shares(&e, amount); // Only burn the original amount of shares
+        burn_shares(&e, amount)?; // Only burn the original amount of shares
         put_total_reserve(&e, total_reserve - asset_amount);
 
-        asset_amount
+        Ok(asset_amount)
     }
 
-    fn reserves(e: Env) -> i128 {
+    fn reserves(e: Env) -> Result<i128, VaultError> {
+        extend_instance_ttl(&e)?;
         get_reserve(&e)
     }
 
-    fn set_total_reserve(e: Env, amount: i128) {
-        check_nonnegative_amount(amount);
-        
-        if time(&e) < get_end_time(&e) {
-            panic!("maturity not reached")
+    fn set_total_reserve(e: Env, amount: i128) -> Result<(), VaultError> {
+        check_nonnegative_amount(amount)?;
+        extend_instance_ttl(&e)?;
+
+        if time(&e) < get_end_time(&e)? {
+            return Err(VaultError::MaturityNotReached);
         }
-        if get_total_reserve(&e) > 0 {
-            panic!("already set")
+        if get_total_reserve(&e)? > 0 {
+            return Err(VaultError::TotalReserveAlreadySet);
         }
-        let admin = get_admin(&e);
+        let admin = get_admin(&e)?;
         admin.require_auth();
 
-        let token_client = token::Client::new(&e, &get_token(&e));
+        let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&admin, &e.current_contract_address(), &amount);
 
         put_total_reserve(&e, amount);
+        Ok(())
     }
 
-    fn set_treasury(e: Env, treasury: Address) {
-        let admin = get_admin(&e);
+    fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError> {
+        let admin = get_admin(&e)?;
         admin.require_auth();
+        extend_instance_ttl(&e)?;
+        e.events().publish((symbol_short!("TREASURY"), symbol_short!("set")), treasury.clone());
         put_treasury(&e, treasury);
+
+        Ok(())
     }
 
-    fn admin(e: Env) -> Address {
+    fn admin(e: Env) -> Result<Address, VaultError> {
+        extend_instance_ttl(&e)?;
         get_admin(&e)
     }
 
-    fn new_owner(e: Env) -> Address {
-        let admin = get_admin(&e);
+    fn new_owner(e: Env, new_admin: Address) -> Result<(), VaultError> {
+        let admin = get_admin(&e)?;
         admin.require_auth();
-        e.current_contract_address()
+        extend_instance_ttl(&e)?;
+        e.events().publish((symbol_short!("ADMIN"), symbol_short!("changed")), new_admin.clone());
+        put_admin(&e, new_admin);
+
+        Ok(())
     }
 
-    fn maturity(e: Env) -> u64 {
+    fn maturity(e: Env) -> Result<u64, VaultError> {
+        extend_instance_ttl(&e)?;
         get_end_time(&e)
     }
 
-    fn total_bonds(e: Env) -> i128 {
+    fn total_bonds(e: Env) -> Result<i128, VaultError> {
+        extend_instance_ttl(&e)?;
         get_total_shares(&e)
     }
 
-    fn treasury_account(e: Env) -> Address {
+    fn treasury_account(e: Env) -> Result<Address, VaultError> {
+        extend_instance_ttl(&e)?;
         get_treasury(&e)
     }
 }
