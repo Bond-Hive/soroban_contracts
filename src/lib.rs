@@ -9,6 +9,7 @@ use soroban_sdk::{
 use token::create_contract;
 
 pub(crate) const DAY_IN_LEDGERS: u32 = 17280;
+pub(crate) const MAX_TTL: u32 = 3110400;
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
@@ -25,7 +26,6 @@ pub enum DataKey {
     QuoteExpiration = 9,
     QuotePeriod = 10,
     Treasury = 11,
-    MaxTtl = 12,
 }
 
 impl TryFromVal<Env, DataKey> for Val {
@@ -49,13 +49,6 @@ pub enum VaultError {
     QuoteRequired = 7,
     TotalReserveNotSet = 8,
     TotalReserveAlreadySet = 9,
-}
-
-fn get_max_ttl(e: &Env) -> Result<u32, VaultError> {
-    e.storage()
-        .instance()
-        .get(&DataKey::MaxTtl)
-        .ok_or(VaultError::NotInitialized)
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -148,15 +141,10 @@ fn time(e: &Env) -> u64 {
     e.ledger().timestamp()
 }
 
-fn extend_instance_ttl(e: &Env) -> Result<(), VaultError> {
+fn extend_instance_ttl(e: &Env) {
     e.storage()
         .instance()
-        .extend_ttl(get_max_ttl(e)? - DAY_IN_LEDGERS, get_max_ttl(e)?);
-    Ok(())
-}
-
-fn put_max_ttl(e: &Env, ttl: u32) {
-    e.storage().instance().set(&DataKey::MaxTtl, &ttl)
+        .extend_ttl(MAX_TTL - DAY_IN_LEDGERS, MAX_TTL)
 }
 
 fn put_token(e: &Env, contract: Address) {
@@ -315,7 +303,6 @@ impl VaultTrait for Vault {
             &"VST".into_val(&e),
         );
 
-        put_max_ttl(&e, e.storage().max_ttl());
         put_token(&e, token);
         put_token_share(&e, share_contract_id.try_into().unwrap());
         put_admin(&e, admin);
@@ -334,7 +321,7 @@ impl VaultTrait for Vault {
     }
 
     fn quote(e: Env) -> Result<i128, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_current_quote(&e)
     }
 
@@ -343,7 +330,7 @@ impl VaultTrait for Vault {
         admin.require_auth();
 
         check_nonnegative_amount(amount)?;
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         put_current_quote(&e, amount);
         put_quote_expiration(&e)?;
         
@@ -353,7 +340,7 @@ impl VaultTrait for Vault {
     }
 
     fn bond_id(e: Env) -> Result<Address, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_token_share(&e)
     }
 
@@ -362,7 +349,7 @@ impl VaultTrait for Vault {
         from.require_auth();
 
         check_nonnegative_amount(amount)?;
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
 
         if time(&e) > get_end_time(&e)? {
             return Err(VaultError::MaturityReached);
@@ -389,7 +376,7 @@ impl VaultTrait for Vault {
         to.require_auth();
 
         check_nonnegative_amount(amount)?;
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
 
         if time(&e) < get_end_time(&e)? {
             return Err(VaultError::MaturityNotReached);
@@ -417,13 +404,13 @@ impl VaultTrait for Vault {
     }
 
     fn reserves(e: Env) -> Result<i128, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_reserve(&e)
     }
 
     fn set_total_reserve(e: Env, amount: i128) -> Result<(), VaultError> {
         check_nonnegative_amount(amount)?;
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
 
         if time(&e) < get_end_time(&e)? {
             return Err(VaultError::MaturityNotReached);
@@ -444,7 +431,7 @@ impl VaultTrait for Vault {
     fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         e.events().publish((symbol_short!("TREASURY"), symbol_short!("set")), treasury.clone());
         put_treasury(&e, treasury);
 
@@ -452,14 +439,14 @@ impl VaultTrait for Vault {
     }
 
     fn admin(e: Env) -> Result<Address, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_admin(&e)
     }
 
     fn new_owner(e: Env, new_admin: Address) -> Result<(), VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         e.events().publish((symbol_short!("ADMIN"), symbol_short!("changed")), new_admin.clone());
         put_admin(&e, new_admin);
 
@@ -467,17 +454,17 @@ impl VaultTrait for Vault {
     }
 
     fn maturity(e: Env) -> Result<u64, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_end_time(&e)
     }
 
     fn total_bonds(e: Env) -> Result<i128, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_total_shares(&e)
     }
 
     fn treasury_account(e: Env) -> Result<Address, VaultError> {
-        extend_instance_ttl(&e)?;
+        extend_instance_ttl(&e);
         get_treasury(&e)
     }
 }
