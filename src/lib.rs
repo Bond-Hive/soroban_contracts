@@ -3,7 +3,8 @@
 mod token;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, Address, BytesN, ConversionError, Env, IntoVal, TryFromVal, Val, symbol_short,
+    contract, contracterror, contractimpl, symbol_short, Address, BytesN, ConversionError, Env,
+    IntoVal, TryFromVal, Val,
 };
 
 use token::create_contract;
@@ -117,8 +118,16 @@ fn get_min_deposit(e: &Env) -> Result<u128, VaultError> {
 }
 
 fn get_current_quote(e: &Env) -> Result<i128, VaultError> {
-    let current_quote = e.storage().instance().get(&DataKey::CurrentQuote).ok_or(VaultError::NotInitialized)?;
-    let quote_expiration = e.storage().instance().get(&DataKey::QuoteExpiration).ok_or(VaultError::NotInitialized)?;
+    let current_quote = e
+        .storage()
+        .instance()
+        .get(&DataKey::CurrentQuote)
+        .ok_or(VaultError::NotInitialized)?;
+    let quote_expiration = e
+        .storage()
+        .instance()
+        .get(&DataKey::QuoteExpiration)
+        .ok_or(VaultError::NotInitialized)?;
 
     // Check they are non-zero
     if current_quote != 0 && quote_expiration != 0 {
@@ -216,9 +225,10 @@ fn burn_shares(e: &Env, amount: i128) -> Result<(), VaultError> {
 
     token::Client::new(e, &share_contract_id).burn(&e.current_contract_address(), &amount);
     put_total_shares(e, total - amount);
-    
-    e.events().publish((symbol_short!("SHARES"), symbol_short!("burned")), amount);
-    
+
+    e.events()
+        .publish((symbol_short!("SHARES"), symbol_short!("burned")), amount);
+
     Ok(())
 }
 
@@ -229,8 +239,11 @@ fn mint_shares(e: &Env, to: Address, amount: i128) -> Result<(), VaultError> {
     token::Client::new(e, &share_contract_id).mint(&to, &amount);
 
     put_total_shares(e, total + amount);
-    
-    e.events().publish((symbol_short!("SHARES"), symbol_short!("minted")), (to, amount));
+
+    e.events().publish(
+        (symbol_short!("SHARES"), symbol_short!("minted")),
+        (to, amount),
+    );
 
     Ok(())
 }
@@ -328,12 +341,18 @@ impl VaultTrait for Vault {
         put_treasury(&e, treasury);
         put_min_deposit(&e, min_deposit);
 
-        e.events().publish((symbol_short!("VAULT"), symbol_short!("init")), (e.current_contract_address(), start_time, end_time));
+        e.events().publish(
+            (symbol_short!("VAULT"), symbol_short!("init")),
+            (e.current_contract_address(), start_time, end_time),
+        );
     }
 
     fn quote(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
-        get_current_quote(&e)
+        match get_current_quote(&e) {
+            Ok(quote) => Ok(quote),
+            Err(_) => Ok(0),
+        }
     }
 
     fn set_quote(e: Env, amount: i128) -> Result<(), VaultError> {
@@ -344,9 +363,10 @@ impl VaultTrait for Vault {
         extend_instance_ttl(&e);
         put_current_quote(&e, amount);
         put_quote_expiration(&e)?;
-        
-        e.events().publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
-        
+
+        e.events()
+            .publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
+
         Ok(())
     }
 
@@ -380,7 +400,7 @@ impl VaultTrait for Vault {
 
         mint_shares(&e, from, quantity)?;
         put_reserve(&e, get_reserve(&e)? + amount);
-        
+
         Ok(quantity)
     }
 
@@ -444,7 +464,10 @@ impl VaultTrait for Vault {
         let admin = get_admin(&e)?;
         admin.require_auth();
         extend_instance_ttl(&e);
-        e.events().publish((symbol_short!("TREASURY"), symbol_short!("set")), treasury.clone());
+        e.events().publish(
+            (symbol_short!("TREASURY"), symbol_short!("set")),
+            treasury.clone(),
+        );
         put_treasury(&e, treasury);
 
         Ok(())
@@ -459,7 +482,10 @@ impl VaultTrait for Vault {
         let admin = get_admin(&e)?;
         admin.require_auth();
         extend_instance_ttl(&e);
-        e.events().publish((symbol_short!("ADMIN"), symbol_short!("changed")), new_admin.clone());
+        e.events().publish(
+            (symbol_short!("ADMIN"), symbol_short!("changed")),
+            new_admin.clone(),
+        );
         put_admin(&e, new_admin);
 
         Ok(())
