@@ -22,8 +22,8 @@ pub enum DataKey {
     StartTime = 3,
     EndTime = 4,
     TotalShares = 5,
-    Reserve = 6,
-    TotalReserve = 7,
+    TotalDeposit = 6,
+    DepositLimit = 7,
     CurrentQuote = 8,
     QuoteExpiration = 9,
     QuotePeriod = 10,
@@ -50,8 +50,8 @@ pub enum VaultError {
     MaturityNotReached = 5,
     NotOpenYet = 6,
     QuoteRequired = 7,
-    TotalReserveNotSet = 8,
-    TotalReserveAlreadySet = 9,
+    DepositLimitNotSet = 8,
+    DepositLimitAlreadySet = 9,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -96,17 +96,17 @@ fn get_total_shares(e: &Env) -> Result<i128, VaultError> {
         .ok_or(VaultError::NotInitialized)
 }
 
-fn get_reserve(e: &Env) -> Result<i128, VaultError> {
+fn get_total_deposit(e: &Env) -> Result<i128, VaultError> {
     e.storage()
         .instance()
-        .get(&DataKey::Reserve)
+        .get(&DataKey::TotalDeposit)
         .ok_or(VaultError::NotInitialized)
 }
 
-fn get_total_reserve(e: &Env) -> Result<i128, VaultError> {
+fn get_deposit_limit(e: &Env) -> Result<i128, VaultError> {
     e.storage()
         .instance()
-        .get(&DataKey::TotalReserve)
+        .get(&DataKey::DepositLimit)
         .ok_or(VaultError::NotInitialized)
 }
 
@@ -203,12 +203,12 @@ fn put_total_shares(e: &Env, amount: i128) {
     e.storage().instance().set(&DataKey::TotalShares, &amount)
 }
 
-fn put_reserve(e: &Env, amount: i128) {
-    e.storage().instance().set(&DataKey::Reserve, &amount)
+fn put_total_deposit(e: &Env, amount: i128) {
+    e.storage().instance().set(&DataKey::TotalDeposit, &amount)
 }
 
-fn put_total_reserve(e: &Env, amount: i128) {
-    e.storage().instance().set(&DataKey::TotalReserve, &amount)
+fn put_deposit_limit(e: &Env, amount: i128) {
+    e.storage().instance().set(&DataKey::DepositLimit, &amount)
 }
 
 fn put_treasury(e: &Env, treasury: Address) {
@@ -283,7 +283,7 @@ pub trait VaultTrait {
     // Returns amount of token withdrawn
     fn withdraw(e: Env, to: Address, amount: i128) -> Result<i128, VaultError>;
 
-    fn reserves(e: Env) -> Result<i128, VaultError>;
+    fn total_deposit(e: Env) -> Result<i128, VaultError>;
 
     fn admin(e: Env) -> Result<Address, VaultError>;
 
@@ -297,11 +297,11 @@ pub trait VaultTrait {
 
     fn set_quote(e: Env, amount: i128) -> Result<(), VaultError>;
 
-    fn set_total_reserve(e: Env, amount: i128) -> Result<(), VaultError>;
+    fn set_deposit_limit(e: Env, amount: i128) -> Result<(), VaultError>;
 
     fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError>;
 
-    fn new_owner(e: Env, new_admin: Address) -> Result<(), VaultError>;
+    fn set_admin(e: Env, new_admin: Address) -> Result<(), VaultError>;
 }
 
 #[contract]
@@ -334,8 +334,8 @@ impl VaultTrait for Vault {
         put_start_time(&e, start_time);
         put_end_time(&e, end_time);
         put_total_shares(&e, 0);
-        put_reserve(&e, 0);
-        put_total_reserve(&e, 0);
+        put_total_deposit(&e, 0);
+        put_deposit_limit(&e, 0);
         put_current_quote(&e, 0);
         put_quote_period(&e, quote_period);
         put_treasury(&e, treasury);
@@ -399,7 +399,7 @@ impl VaultTrait for Vault {
         token_client.transfer(&from, &get_treasury(&e)?, &amount);
 
         mint_shares(&e, from, quantity)?;
-        put_reserve(&e, get_reserve(&e)? + amount);
+        put_total_deposit(&e, get_total_deposit(&e)? + amount);
 
         Ok(quantity)
     }
@@ -414,9 +414,9 @@ impl VaultTrait for Vault {
             return Err(VaultError::MaturityNotReached);
         }
 
-        let total_reserve = get_total_reserve(&e)?;
-        if total_reserve == 0 {
-            return Err(VaultError::TotalReserveNotSet);
+        let deposit_limit = get_deposit_limit(&e)?;
+        if deposit_limit == 0 {
+            return Err(VaultError::DepositLimitNotSet);
         }
 
         // First transfer the vault shares that need to be redeemed
@@ -424,31 +424,31 @@ impl VaultTrait for Vault {
         share_token_client.transfer(&to, &e.current_contract_address(), &amount);
 
         // Calculate total amount including yield
-        let asset_amount = total_reserve / get_total_shares(&e)? * amount;
+        let asset_amount = deposit_limit / get_total_shares(&e)? * amount;
 
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&e.current_contract_address(), &to, &asset_amount);
 
         burn_shares(&e, amount)?; // Only burn the original amount of shares
-        put_total_reserve(&e, total_reserve - asset_amount);
+        put_deposit_limit(&e, deposit_limit - asset_amount);
 
         Ok(asset_amount)
     }
 
-    fn reserves(e: Env) -> Result<i128, VaultError> {
+    fn total_deposit(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
-        get_reserve(&e)
+        get_total_deposit(&e)
     }
 
-    fn set_total_reserve(e: Env, amount: i128) -> Result<(), VaultError> {
+    fn set_deposit_limit(e: Env, amount: i128) -> Result<(), VaultError> {
         check_nonnegative_amount(amount)?;
         extend_instance_ttl(&e);
 
         if time(&e) < get_end_time(&e)? {
             return Err(VaultError::MaturityNotReached);
         }
-        if get_total_reserve(&e)? > 0 {
-            return Err(VaultError::TotalReserveAlreadySet);
+        if get_deposit_limit(&e)? > 0 {
+            return Err(VaultError::DepositLimitAlreadySet);
         }
         let admin = get_admin(&e)?;
         admin.require_auth();
@@ -456,7 +456,7 @@ impl VaultTrait for Vault {
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&admin, &e.current_contract_address(), &amount);
 
-        put_total_reserve(&e, amount);
+        put_deposit_limit(&e, amount);
         Ok(())
     }
 
@@ -478,7 +478,7 @@ impl VaultTrait for Vault {
         get_admin(&e)
     }
 
-    fn new_owner(e: Env, new_admin: Address) -> Result<(), VaultError> {
+    fn set_admin(e: Env, new_admin: Address) -> Result<(), VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
         extend_instance_ttl(&e);
