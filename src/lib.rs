@@ -285,6 +285,8 @@ pub trait VaultTrait {
 
     fn total_deposit(e: Env) -> Result<i128, VaultError>;
 
+    fn deposit_limit(e: Env) -> Result<i128, VaultError>;
+
     fn admin(e: Env) -> Result<Address, VaultError>;
 
     fn maturity(e: Env) -> Result<u64, VaultError>;
@@ -438,6 +440,11 @@ impl VaultTrait for Vault {
     fn total_deposit(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
         get_total_deposit(&e)
+    }
+
+    fn deposit_limit(e: Env) -> Result<i128, VaultError> {
+        extend_instance_ttl(&e);
+        get_deposit_limit(&e)
     }
 
     fn set_deposit_limit(e: Env, amount: i128) -> Result<(), VaultError> {
