@@ -426,7 +426,7 @@ impl VaultTrait for Vault {
         share_token_client.transfer(&to, &e.current_contract_address(), &amount);
 
         // Calculate total amount including yield
-        let asset_amount = deposit_limit / get_total_shares(&e)? * amount;
+        let asset_amount = deposit_limit * amount / get_total_shares(&e)?;
 
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&e.current_contract_address(), &to, &asset_amount);
