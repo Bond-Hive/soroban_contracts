@@ -23,7 +23,7 @@ pub enum DataKey {
     EndTime = 4,
     TotalShares = 5,
     TotalDeposit = 6,
-    DepositLimit = 7,
+    AvailableRedemption = 7,
     CurrentQuote = 8,
     QuoteExpiration = 9,
     QuotePeriod = 10,
@@ -50,8 +50,8 @@ pub enum VaultError {
     MaturityNotReached = 5,
     NotOpenYet = 6,
     QuoteRequired = 7,
-    DepositLimitNotSet = 8,
-    DepositLimitAlreadySet = 9,
+    AvailableRedemptionNotSet = 8,
+    AvailableRedemptionAlreadySet = 9,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -103,10 +103,10 @@ fn get_total_deposit(e: &Env) -> Result<i128, VaultError> {
         .ok_or(VaultError::NotInitialized)
 }
 
-fn get_deposit_limit(e: &Env) -> Result<i128, VaultError> {
+fn get_available_redemption(e: &Env) -> Result<i128, VaultError> {
     e.storage()
         .instance()
-        .get(&DataKey::DepositLimit)
+        .get(&DataKey::AvailableRedemption)
         .ok_or(VaultError::NotInitialized)
 }
 
@@ -207,8 +207,8 @@ fn put_total_deposit(e: &Env, amount: i128) {
     e.storage().instance().set(&DataKey::TotalDeposit, &amount)
 }
 
-fn put_deposit_limit(e: &Env, amount: i128) {
-    e.storage().instance().set(&DataKey::DepositLimit, &amount)
+fn put_available_redemption(e: &Env, amount: i128) {
+    e.storage().instance().set(&DataKey::AvailableRedemption, &amount)
 }
 
 fn put_treasury(e: &Env, treasury: Address) {
@@ -285,7 +285,7 @@ pub trait VaultTrait {
 
     fn total_deposit(e: Env) -> Result<i128, VaultError>;
 
-    fn deposit_limit(e: Env) -> Result<i128, VaultError>;
+    fn available_redemption(e: Env) -> Result<i128, VaultError>;
 
     fn admin(e: Env) -> Result<Address, VaultError>;
 
@@ -299,7 +299,7 @@ pub trait VaultTrait {
 
     fn set_quote(e: Env, amount: i128) -> Result<(), VaultError>;
 
-    fn set_deposit_limit(e: Env, amount: i128) -> Result<(), VaultError>;
+    fn set_total_redemption(e: Env, amount: i128) -> Result<(), VaultError>;
 
     fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError>;
 
@@ -337,7 +337,7 @@ impl VaultTrait for Vault {
         put_end_time(&e, end_time);
         put_total_shares(&e, 0);
         put_total_deposit(&e, 0);
-        put_deposit_limit(&e, 0);
+        put_available_redemption(&e, 0);
         put_current_quote(&e, 0);
         put_quote_period(&e, quote_period);
         put_treasury(&e, treasury);
@@ -416,9 +416,9 @@ impl VaultTrait for Vault {
             return Err(VaultError::MaturityNotReached);
         }
 
-        let deposit_limit = get_deposit_limit(&e)?;
-        if deposit_limit == 0 {
-            return Err(VaultError::DepositLimitNotSet);
+        let available_redemption = get_available_redemption(&e)?;
+        if available_redemption == 0 {
+            return Err(VaultError::AvailableRedemptionNotSet);
         }
 
         // First transfer the vault shares that need to be redeemed
@@ -426,13 +426,13 @@ impl VaultTrait for Vault {
         share_token_client.transfer(&to, &e.current_contract_address(), &amount);
 
         // Calculate total amount including yield
-        let asset_amount = deposit_limit * amount / get_total_shares(&e)?;
+        let asset_amount = available_redemption * amount / get_total_shares(&e)?;
 
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&e.current_contract_address(), &to, &asset_amount);
 
         burn_shares(&e, amount)?; // Only burn the original amount of shares
-        put_deposit_limit(&e, deposit_limit - asset_amount);
+        put_available_redemption(&e, available_redemption - asset_amount);
 
         Ok(asset_amount)
     }
@@ -442,20 +442,20 @@ impl VaultTrait for Vault {
         get_total_deposit(&e)
     }
 
-    fn deposit_limit(e: Env) -> Result<i128, VaultError> {
+    fn available_redemption(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
-        get_deposit_limit(&e)
+        get_available_redemption(&e)
     }
 
-    fn set_deposit_limit(e: Env, amount: i128) -> Result<(), VaultError> {
+    fn set_total_redemption(e: Env, amount: i128) -> Result<(), VaultError> {
         check_nonnegative_amount(amount)?;
         extend_instance_ttl(&e);
 
         if time(&e) < get_end_time(&e)? {
             return Err(VaultError::MaturityNotReached);
         }
-        if get_deposit_limit(&e)? > 0 {
-            return Err(VaultError::DepositLimitAlreadySet);
+        if get_available_redemption(&e)? > 0 {
+            return Err(VaultError::AvailableRedemptionAlreadySet);
         }
         let admin = get_admin(&e)?;
         admin.require_auth();
@@ -463,7 +463,7 @@ impl VaultTrait for Vault {
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&admin, &e.current_contract_address(), &amount);
 
-        put_deposit_limit(&e, amount);
+        put_available_redemption(&e, amount);
         Ok(())
     }
 
