@@ -1,21 +1,50 @@
-# Soroban Project
+# BondHive Soroban Contracts
+This repository contains the smart contracts for the BondHive platform. BondHive issues crypto bonds using delivery futures from centralized cryptocurrency exchanges, securing locked-in, high-yield returns. These contracts are deployed on both mainnet and testnet environments.
 
-## Project Structure
+## Mainnet Contracts
+BTC_Sep_24
+- Contract Address: CCTU5JLVTEOTGQVI7R2AQFM642N5LOD4ZAMDE6T7IF5Y2GGQM5Q72LKK
+- Bond ID: CCI2JMTDKVWUBBWDALWQBOLTCTJPTXTNUA46T4ILTWOYRD3TA64NBJDA
+- Maturity: 27 Sept 2024, 08:00 GMT (timestamp 1727424000)
 
-This repository uses the recommended structure for a Soroban project:
-```text
-.
-├── contracts
-│   └── hello_world
-│       ├── src
-│       │   ├── lib.rs
-│       │   └── test.rs
-│       └── Cargo.toml
-├── Cargo.toml
-└── README.md
-```
+BTC_Dec_24
+- Contract Address: CBKW3RO4V5KAF6ZLLBQBFUWCEI5Z453JPK35XXYWSZKJSFYKOMZUH34F
+- Bond ID: CA24PDEIZFOVKV6L7VZC5VCUWTJCCQN7G3TBGXCHY4WZY4HKXXX5C7GG
+- Maturity: 27 Dec 2024, 09:00 GMT (timestamp 1735290000)
 
-- New Soroban contracts can be put in `contracts`, each in their own directory. There is already a `hello_world` contract in there to get you started.
-- If you initialized this project with any other example contracts via `--with-example`, those contracts will be in the `contracts` directory as well.
-- Contracts should have their own `Cargo.toml` files that rely on the top-level `Cargo.toml` workspace for their dependencies.
-- Frontend libraries can be added to the top-level directory as well. If you initialized this project with a frontend template via `--frontend-template` you will have those files already included.
+ETH_Sep_24
+- Contract Address: CCCBQYXP5J7F3MZA55WMIMFGZCNAOPWOVEX7XROJISJRSSO7DDOJEPRM
+- Bond ID: CDRKTNM3TCFOFJMO6B6LXZ63GGHVKLABZMJMQG3SBTTFSIUS6SK3242C
+- Maturity: 27 Sept 2024, 08:00 GMT (timestamp 1727424000)
+
+ETH_Dec_24
+- Contract Address: CBMIH3NRB7CJSZYGLUF7ZAOQB5TR25IQTO4URXIQ3XWGAAEXGDMMTXEF
+- Bond ID: CCVPGWH6KQIFDIJK42PNYHEL3SGPNCGKA4VDSU5ITVL2A4J3XTBTIWG4
+- Maturity: 27 Dec 2024, 09:00 GMT (timestamp 1735290000)
+
+## Testnet Contracts
+BTC_Sep_24
+- Contract Address: CA6BJ2EU2SAP5BDF423F6JNMFCJW4XE7DHH7GIXI2HILTXA6TPW2HWOU
+- Bond ID: CCLAP7OSCPMO3O3JEOKFMR5GKVMVQC7Q2NOHORPXFPDZHEBAVH3EVTLH
+- Maturity: 27 Sept 2024, 08:00 GMT (timestamp 1727424000)
+
+BTC_Dec_24
+- Contract Address: CAWTSAIEGSH72RWXLJVO3YB67TREEIYKM5CZO5QJ5K3XAV7LMDU453BW
+- Bond ID: CC7ZR2RIWYNGLFSDZERUNNXSUZJPT4SHSUXCVG3DK227DC66DA2RA6WL
+- Maturity: 27 Dec 2024, 09:00 GMT (timestamp 1735290000)
+
+ETH_Sep_24
+- Contract Address: CDNCM2VKMXUDERGFRI7QQWSKP3ABP4V6B6LYQFI7AVCM6JCJ65FAM2N5
+- Bond ID: CBXFALA7CDB5OGM2XB2AHZMDVMOTQ2VBKYZAP66BVG42M4TLGILOS3X3
+- Maturity: 27 Sept 2024, 08:00 GMT (timestamp 1727424000)
+
+ETH_Dec_24
+- Contract Address: CDDBEIZLOXVHL3HIKLOKURFAOVWK2DIYQGA6CYVX4QT5SMSB6IGV3MB7
+- Bond ID: CCENTFI6QVZYMZYRTUISNXGB2SEY5UBSJBDPHOCCY55GMOU4A3QH64YN
+- Maturity: 27 Dec 2024, 09:00 GMT (timestamp 1735290000)
+
+## Repository Structure
+This repository contains the following key components:
+- Smart Contracts: The Soroban smart contracts for issuing and managing crypto bonds.
+- Documentation: Detailed documentation on how to deploy and interact with the contracts.
+- Scripts: Utility scripts for deploying and interacting with the contracts.
