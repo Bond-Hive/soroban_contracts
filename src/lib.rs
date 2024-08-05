@@ -52,6 +52,7 @@ pub enum VaultError {
     QuoteRequired = 7,
     AvailableRedemptionNotSet = 8,
     AvailableRedemptionAlreadySet = 9,
+    ConversionError = 10,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -134,10 +135,10 @@ fn get_current_quote(e: &Env) -> Result<i128, VaultError> {
         if time(&e) <= quote_expiration {
             Ok(current_quote)
         } else {
-            return Err(VaultError::QuoteRequired);
+            Err(VaultError::QuoteRequired)
         }
     } else {
-        return Err(VaultError::QuoteRequired);
+        Err(VaultError::QuoteRequired)
     }
 }
 
@@ -268,6 +269,7 @@ pub trait VaultTrait {
         quote_period: u64,
         treasury: Address,
         min_deposit: u128,
+        bond_symbol: symbol_short,
     );
 
     // Returns the token contract address for the vault share token
@@ -321,17 +323,18 @@ impl VaultTrait for Vault {
         quote_period: u64,
         treasury: Address,
         min_deposit: u128,
+        bond_symbol: symbol_short,
     ) {
         let share_contract_id = create_contract(&e, token_wasm_hash, &token);
         token::Client::new(&e, &share_contract_id).initialize(
             &e.current_contract_address(),
             &7u32,
-            &"Vault Share Token".into_val(&e),
-            &"VST".into_val(&e),
+            &"bondHive".into_val(&e),
+            &bond_symbol.into_val(&e),
         );
 
         put_token(&e, token);
-        put_token_share(&e, share_contract_id.try_into().unwrap());
+        put_token_share(&e, share_contract_id.try_into().map_err(|_| VaultError::ConversionError)?);
         put_admin(&e, admin);
         put_start_time(&e, start_time);
         put_end_time(&e, end_time);
@@ -351,10 +354,7 @@ impl VaultTrait for Vault {
 
     fn quote(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
-        match get_current_quote(&e) {
-            Ok(quote) => Ok(quote),
-            Err(_) => Ok(0),
-        }
+        get_current_quote(&e).or_else(|_| Ok(0))
     }
 
     fn set_quote(e: Env, amount: i128) -> Result<(), VaultError> {
