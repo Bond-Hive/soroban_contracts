@@ -5,7 +5,7 @@ use crate::{token, VaultClient, VaultError};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
-    Address, BytesN, Env, IntoVal,
+    Address, BytesN, Env, IntoVal, String,
 };
 
 fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
@@ -22,9 +22,20 @@ fn create_vault_contract<'a>(
     quote_period: u64,
     treasury: &Address,
     min_deposit: u128,
+    bond_symbol: String,  // Updated to accept String
 ) -> VaultClient<'a> {
     let vault = VaultClient::new(e, &e.register_contract(None, crate::Vault {}));
-    vault.initialize(token_wasm_hash, token, admin, start_time, end_time, quote_period, treasury, min_deposit);
+    vault.initialize(
+        token_wasm_hash,
+        token,
+        admin,
+        start_time,
+        end_time,
+        quote_period,
+        treasury,
+        min_deposit,
+        bond_symbol,  // Pass String correctly
+    ).unwrap();
     vault
 }
 
@@ -49,7 +60,20 @@ fn test_vault_contract() {
     let quote_period = 600;
     let min_deposit = 100;
 
-    let vault = create_vault_contract(&e, &install_token_wasm(&e), &token.address, &admin1, start_time, end_time, quote_period, &treasury, min_deposit);
+    let bond_symbol = String::from_str("bondHive", &e);  // Create bond symbol as String
+
+    let vault = create_vault_contract(
+        &e,
+        &install_token_wasm(&e),
+        &token.address,
+        &admin1,
+        start_time,
+        end_time,
+        quote_period,
+        &treasury,
+        min_deposit,
+        bond_symbol,  // Pass the bond symbol correctly
+    );
 
     let contract_share = token::Client::new(&e, &vault.bond_id().unwrap());
     let token_share = token::Client::new(&e, &contract_share.address);
@@ -141,7 +165,20 @@ fn test_set_admin() {
     let quote_period = 600;
     let min_deposit = 100;
 
-    let vault = create_vault_contract(&e, &install_token_wasm(&e), &token.address, &admin1, start_time, end_time, quote_period, &treasury, min_deposit);
+    let bond_symbol = String::from_str("bondHive", &e);  // Create bond symbol as String
+
+    let vault = create_vault_contract(
+        &e,
+        &install_token_wasm(&e),
+        &token.address,
+        &admin1,
+        start_time,
+        end_time,
+        quote_period,
+        &treasury,
+        min_deposit,
+        bond_symbol,  // Pass the bond symbol correctly
+    );
 
     // Test set_admin
     vault.set_admin(&admin2).unwrap();
@@ -163,7 +200,20 @@ fn test_error_cases() {
     let quote_period = 600;
     let min_deposit = 100;
 
-    let vault = create_vault_contract(&e, &install_token_wasm(&e), &token.address, &admin1, start_time, end_time, quote_period, &treasury, min_deposit);
+    let bond_symbol = String::from_str("bondHive", &e);  // Create bond symbol as String
+
+    let vault = create_vault_contract(
+        &e,
+        &install_token_wasm(&e),
+        &token.address,
+        &admin1,
+        start_time,
+        end_time,
+        quote_period,
+        &treasury,
+        min_deposit,
+        bond_symbol,  // Pass the bond symbol correctly
+    );
 
     // Test depositing without a quote
     let result = vault.deposit(&user1, &100);

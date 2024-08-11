@@ -4,7 +4,7 @@ mod token;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, symbol_short, Address, BytesN, ConversionError, Env,
-    IntoVal, TryFromVal, Val,
+    IntoVal, TryFromVal, Val, String,
 };
 
 use token::create_contract;
@@ -269,9 +269,9 @@ pub trait VaultTrait {
         quote_period: u64,
         treasury: Address,
         min_deposit: u128,
-        bond_symbol: symbol_short,
-    );
-
+        bond_symbol: String,
+    ) -> Result<(), VaultError>;
+    
     // Returns the token contract address for the vault share token
     fn bond_id(e: Env) -> Result<Address, VaultError>;
 
@@ -323,8 +323,8 @@ impl VaultTrait for Vault {
         quote_period: u64,
         treasury: Address,
         min_deposit: u128,
-        bond_symbol: symbol_short,
-    ) {
+        bond_symbol: String,
+    ) -> Result<(), VaultError> {
         let share_contract_id = create_contract(&e, token_wasm_hash, &token);
         token::Client::new(&e, &share_contract_id).initialize(
             &e.current_contract_address(),
@@ -332,7 +332,7 @@ impl VaultTrait for Vault {
             &"bondHive".into_val(&e),
             &bond_symbol.into_val(&e),
         );
-
+    
         put_token(&e, token);
         put_token_share(&e, share_contract_id.try_into().map_err(|_| VaultError::ConversionError)?);
         put_admin(&e, admin);
@@ -345,12 +345,14 @@ impl VaultTrait for Vault {
         put_quote_period(&e, quote_period);
         put_treasury(&e, treasury);
         put_min_deposit(&e, min_deposit);
-
+    
         e.events().publish(
             (symbol_short!("VAULT"), symbol_short!("init")),
             (e.current_contract_address(), start_time, end_time),
         );
-    }
+    
+        Ok(())
+    }    
 
     fn quote(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
