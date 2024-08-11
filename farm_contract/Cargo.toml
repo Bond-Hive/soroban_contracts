@@ -1,5 +1,5 @@
 [package]
-name = "bondhive-on-chain-bonds"
+name = "bondhive-farm"
 version = "0.1.0"
 edition = "2021"
 
