@@ -52,7 +52,6 @@ pub enum VaultError {
     QuoteRequired = 7,
     AvailableRedemptionNotSet = 8,
     AvailableRedemptionAlreadySet = 9,
-    ConversionError = 10,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -334,7 +333,7 @@ impl VaultTrait for Vault {
         );
     
         put_token(&e, token);
-        put_token_share(&e, share_contract_id.try_into().map_err(|_| VaultError::ConversionError)?);
+        put_token_share(&e, share_contract_id);
         put_admin(&e, admin);
         put_start_time(&e, start_time);
         put_end_time(&e, end_time);
