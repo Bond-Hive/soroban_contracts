@@ -1,0 +1,195 @@
+##cd vault
+soroban contract build
+
+stellar contract deploy \
+    --wasm soroban_token_contract.wasm \
+    --source alice \
+    --network testnet
+
+TOKEN_ID CDYNXC6FSRIJ56AKQMLP2O72PDGVFQKRCE46CMBTJP2OE6E2ZTYIESZG
+
+soroban contract invoke \
+    --id CCYAPIYQ5S5O6DRPHGDKOWBG2XCCVOQJDCVYP27ZRUGDM7YEQVQDVLJ7 \
+    --source alice \
+    --network testnet \
+    -- \
+    initialize \
+    --admin alice \
+    --decimal 7 \
+    --name USDT \
+    --symbol USDT
+
+stellar contract deploy \
+    --wasm target/wasm32-unknown-unknown/release/bondhive_on_chain_bonds.wasm \
+    --source alice \
+    --network testnet
+
+stellar contract deploy \
+    --wasm target/wasm32-unknown-unknown/release/bondhive_farm.wasm \
+    --source alice \
+    --network testnet
+
+    target/wasm32-unknown-unknown/release/bondhive_on_chain_bonds.wasm
+
+CONTRACT_ID CAM4RMVJ6FY67F3PFFQT2T6T4FNJUNENI2W5CQUUF5GKAXFFKTY5U65F
+
+soroban contract install --wasm soroban_token_contract.wasm --source alice --network mainnet1
+
+tokenHash 708cc40d6e46fc5134a76b914220b4694bee8f13e0b8b2cccd7aaadea19b457c
+
+stellar contract invoke \
+    --id CDUS2FTN7BKFXDJED3WCIE7AGVL5FR2SDH5J24556IP4NVER763N2GDS \
+    --source alice \
+    --network testnet \
+    -- \
+    deposit \
+    --depositor alice \
+    --amount 1 \
+    --pool_id 0 
+
+stellar contract invoke \
+    --id CCYAPIYQ5S5O6DRPHGDKOWBG2XCCVOQJDCVYP27ZRUGDM7YEQVQDVLJ7 \
+    --source alice \
+    --network testnet \
+    -- \
+    mint \
+    --to CDUS2FTN7BKFXDJED3WCIE7AGVL5FR2SDH5J24556IP4NVER763N2GDS \
+    --amount 1000000000
+
+soroban contract invoke \
+    --id CAEZQ4H4AOQEVWT7KWW3IV4VMAHIJEMOR6GHYEGYTO3VHBP2KR7UECES \
+    --source alice \
+    --network testnet \
+    -- \
+    initialize \
+    --token_wasm_hash 708cc40d6e46fc5134a76b914220b4694bee8f13e0b8b2cccd7aaadea19b457c \
+    --token CCYAPIYQ5S5O6DRPHGDKOWBG2XCCVOQJDCVYP27ZRUGDM7YEQVQDVLJ7 \
+    --admin alice \
+    --start_time 1720476192 \
+    --end_time 1723555886 \
+    --quote_period 300 \
+    --treasury alice \
+    --min_deposit 10000000 \
+    --bond_symbol F22
+
+    stellar contract invoke \
+    --id CCJEXRTBD5YVYZZ24RN7J5IATWJXXADKXSKLKRE2BZR7S5L5WQYM632T \
+    --source alice \
+    --network testnet \
+    -- \
+    initialize \
+    --admin alice \
+    --rewarded_token1 CCYAPIYQ5S5O6DRPHGDKOWBG2XCCVOQJDCVYP27ZRUGDM7YEQVQDVLJ7 \
+    --rewarded_token2 CCYAPIYQ5S5O6DRPHGDKOWBG2XCCVOQJDCVYP27ZRUGDM7YEQVQDVLJ7 \
+    --token_wasm_hash 708cc40d6e46fc5134a76b914220b4694bee8f13e0b8b2cccd7aaadea19b457c
+
+    stellar contract invoke \
+    --id CDUS2FTN7BKFXDJED3WCIE7AGVL5FR2SDH5J24556IP4NVER763N2GDS \
+    --source alice \
+    --network testnet \
+    -- \
+    create_pool \
+    --token CCYAPIYQ5S5O6DRPHGDKOWBG2XCCVOQJDCVYP27ZRUGDM7YEQVQDVLJ7 \
+    --start_time 1723393084 \
+    --expiration_date 1723555886 \
+    --reward_ratio1 20000000 \
+    --reward_ratio2 20000000
+
+    stellar contract invoke \
+    --id CAM2IKIEOAYEBDXENUECJ3KXIPP5AHHG2RX4GBNITFAZQW5HPXFUHPVQ \
+    --source alice \
+    --network testnet \
+    -- \
+    deposit \
+    --depositor alice \
+    --amount 100 \
+    --expiration_date 1723493084 \
+    --reward_ratio1 20000000 \
+    --reward_ratio2 20000000
+
+    soroban contract install \
+    --wasm soroban_token_contract.wasm \
+    --source alice \
+    --network testnet
+
+    soroban contract invoke \
+    --id CAEZQ4H4AOQEVWT7KWW3IV4VMAHIJEMOR6GHYEGYTO3VHBP2KR7UECES \
+    --source alice \
+    --network testnet \
+    -- \
+    deposit \
+    --from alice \
+    --amount 10000000
+
+    soroban contract invoke \
+    --id CAEZQ4H4AOQEVWT7KWW3IV4VMAHIJEMOR6GHYEGYTO3VHBP2KR7UECES \
+    --source alice \
+    --network testnet \
+    -- \
+    bond_id
+
+soroban contract invoke \
+    --id CA5BMOP5GYY5W64RRKZT6Q4RVAFUFBZBWQ3FMQATREOZQP7XVDEXT222 \
+    --source alice \
+    --network mainnet1 \
+    -- \
+    set_deposit_limit \
+    --amount 10000000
+
+soroban contract invoke \
+    --id CDVMQNON6DUEVFYTDZG3K6B4XTJV2THPZQDOZCZ7KBRDXMKLRKZOWAAH \
+    --source alice \
+    --network testnet \
+    -- \
+    deposit_limit
+
+soroban contract invoke \
+    --id CA5BMOP5GYY5W64RRKZT6Q4RVAFUFBZBWQ3FMQATREOZQP7XVDEXT222 \
+    --source alice \
+    --network mainnet1 \
+    -- \
+    withdraw \
+    --to alice \
+    --amount 10000000
+
+    soroban contract invoke \
+    --id CCARBH37XDRVVRKNXNG5APJHLBU6ZHUGWQPWJ7CXC67PSCQHTID32OUJ \
+    --source alice \
+    --network testnet \
+    -- \
+    set_admin \
+    --new_admin GC5EIUVXXDUA46WHV5IFKGPOSN33PRSBMDZUF3WH2DAWSHPAHZNIYUCN
+
+soroban contract invoke \
+    --id CAEZQ4H4AOQEVWT7KWW3IV4VMAHIJEMOR6GHYEGYTO3VHBP2KR7UECES \
+    --source alice \
+    --network testnet \
+    -- \
+        set_quote \
+    --amount 100
+
+soroban contract invoke \
+    --id CC53W7SAOKASJXE5S774QK7LG33MYGLM4W6RN3CVQTSDXQURC7X4QRJ7 \
+    --source alice \
+    --network testnet \
+    -- \
+        allowance \
+    --from alice \
+    --spender CBVQ4JXSU3NJFSVML5XCAYVB5GCIRRFEFOFFOUDTPYKJDB7OGFGCN3ZL
+
+soroban contract invoke \
+    --id CC53W7SAOKASJXE5S774QK7LG33MYGLM4W6RN3CVQTSDXQURC7X4QRJ7 \
+    --source alice \
+    --network testnet \
+    -- \
+        approve \
+    --from alice \
+    --spender CBVQ4JXSU3NJFSVML5XCAYVB5GCIRRFEFOFFOUDTPYKJDB7OGFGCN3ZL \
+    --amount 100
+
+soroban contract invoke \
+    --id CDVMQNON6DUEVFYTDZG3K6B4XTJV2THPZQDOZCZ7KBRDXMKLRKZOWAAH \
+    --source alice \
+    --network testnet \
+    -- \
+        total_deposit

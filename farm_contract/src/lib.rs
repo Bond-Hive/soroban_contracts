@@ -3,8 +3,7 @@
 mod token;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, Address, BytesN, ConversionError, Env,
-    IntoVal, TryFromVal, TryIntoVal, Val, Map,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
 };
 
 use token::create_contract;
@@ -15,6 +14,7 @@ pub(crate) const DECIMALS: u32 = 7;
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
+#[contracttype]
 pub enum DataKey {
     Pools = 0,
     Admin = 1,
@@ -26,17 +26,9 @@ pub enum DataKey {
     TokenShare = 7,
 }
 
-impl TryFromVal<Env, DataKey> for Val {
-    type Error = ConversionError;
-
-    fn try_from_val(_env: &Env, v: &DataKey) -> Result<Self, Self::Error> {
-        Ok((*v as u32).into())
-    }
-}
-
 #[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub enum FarmError {
     InvalidAmount = 1,
     NotInitialized = 2,
@@ -49,6 +41,7 @@ pub enum FarmError {
 }
 
 #[derive(Clone)]
+#[contracttype]
 pub struct Pool {
     pub token: Address,
     pub start_time: u64,
@@ -59,6 +52,7 @@ pub struct Pool {
 }
 
 #[derive(Clone)]
+#[contracttype]
 pub struct UserData {
     pub deposited: i128,
     pub deposit_time: u64,
@@ -67,67 +61,12 @@ pub struct UserData {
 }
 
 #[derive(Clone)]
+#[contracttype]
 pub struct FarmState {
     pub allocated_rewards1: i128,
     pub allocated_rewards2: i128,
     pub pools: Map<u32, Pool>,
     pub user_data: Map<(Address, u32), UserData>,
-}
-
-impl TryFromVal<Env, Val> for Pool {
-    type Error = ConversionError;
-
-    fn try_from_val(env: &Env, val: &Val) -> Result<Self, Self::Error> {
-        let data: (Address, u64, u64, i128, i128, u32) = val.clone().try_into_val(env)?;
-        Ok(Pool {
-            token: data.0,
-            start_time: data.1,
-            expiration_date: data.2,
-            reward_ratio1: data.3,
-            reward_ratio2: data.4,
-            pool_id: data.5,
-        })
-    }
-}
-
-impl IntoVal<Env, Val> for Pool {
-    fn into_val(&self, env: &Env) -> Val {
-        (
-            self.token.clone(),
-            self.start_time,
-            self.expiration_date,
-            self.reward_ratio1,
-            self.reward_ratio2,
-            self.pool_id,
-        )
-        .into_val(env)
-    }
-}
-
-impl TryFromVal<Env, Val> for UserData {
-    type Error = ConversionError;
-
-    fn try_from_val(env: &Env, val: &Val) -> Result<Self, Self::Error> {
-        let data: (i128, u64, i128, i128) = val.clone().try_into_val(env)?;
-        Ok(UserData {
-            deposited: data.0,
-            deposit_time: data.1,
-            accrued_rewards1: data.2,
-            accrued_rewards2: data.3,
-        })
-    }
-}
-
-impl IntoVal<Env, Val> for UserData {
-    fn into_val(&self, env: &Env) -> Val {
-        (
-            self.deposited,
-            self.deposit_time,
-            self.accrued_rewards1,
-            self.accrued_rewards2,
-        )
-        .into_val(env)
-    }
 }
 
 #[contract]
@@ -144,12 +83,6 @@ impl Farm {
     ) -> Result<(), FarmError> {
         // Create the receipt token contract and initialize it
         let receipt_token_id = create_contract(&e, token_wasm_hash, &e.current_contract_address());
-        token::Client::new(&e, &receipt_token_id).initialize(
-            &e.current_contract_address(),
-            &DECIMALS,
-            &"bondHive".into_val(&e),
-            &"BHFARM".into_val(&e),
-        );
     
         // Store the admin, receipt token, and rewarded tokens in the contract's storage
         put_admin(&e, &admin);  // Pass `admin` as a reference
@@ -283,7 +216,7 @@ impl Farm {
         };
 
         // Check if there is enough balance in the contract to cover these new yields
-        if !self::has_sufficient_rewards(
+        if !has_sufficient_rewards(
             &e,
             &(state.allocated_rewards1 + potential_yield1),
             &(state.allocated_rewards2 + potential_yield2),
@@ -563,4 +496,3 @@ fn extend_instance_ttl(e: &Env) {
         .instance()
         .extend_ttl(MAX_TTL - DAY_IN_LEDGERS, MAX_TTL)
 }
-
