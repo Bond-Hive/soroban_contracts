@@ -514,3 +514,5 @@ impl VaultTrait for Vault {
         get_treasury(&e)
     }
 }
+
+mod test;
