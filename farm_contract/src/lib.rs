@@ -236,7 +236,7 @@ impl Farm {
         rewarded_token1: Address,
         rewarded_token2: Address,
         token_wasm_hash: BytesN<32>,
-    ) -> Result<(), FarmError> {
+    ) -> Result<String, FarmError> {
         // Create the receipt token contract and initialize it
         let receipt_token_id = create_contract(&e, token_wasm_hash, &e.current_contract_address());
         token::Client::new(&e, &receipt_token_id).initialize(
@@ -253,7 +253,7 @@ impl Farm {
         put_allocated_rewards(&e, 0, 0); // Initialize global allocated rewards
         put_pool_counter(&e, 0); // Initialize pool counter
 
-        Ok(())
+        Ok(String::from_str(&e, "Ok"))
     }
 
     pub fn create_pool(
@@ -295,7 +295,7 @@ impl Farm {
         depositor: Address,
         amount: i128,
         pool_id: u32,
-    ) -> Result<(), FarmError> {
+    ) -> Result<i128, FarmError> {
         depositor.require_auth();
         extend_instance_ttl(&e);
 
@@ -383,7 +383,7 @@ impl Farm {
             amount,
         );
 
-        Ok(())
+        Ok(amount)
     }
 
     pub fn withdraw(
@@ -391,7 +391,7 @@ impl Farm {
         withdrawer: Address,
         amount: i128,
         pool_id: u32,
-    ) -> Result<(), FarmError> {
+    ) -> Result<i128, FarmError> {
         withdrawer.require_auth();
         extend_instance_ttl(&e);
 
@@ -488,10 +488,10 @@ impl Farm {
             amount,
         );
 
-        Ok(())
+        Ok(amount)
     }
 
-    pub fn set_admin(e: Env, new_admin: Address) -> Result<(), FarmError> {
+    pub fn set_admin(e: Env, new_admin: Address) -> Result<String, FarmError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
         extend_instance_ttl(&e);
@@ -503,7 +503,7 @@ impl Farm {
             new_admin,
         );
 
-        Ok(())
+        Ok(String::from_str(&e, "Ok"))
     }
 
     pub fn get_receipt_token_id(e: Env) -> Result<Address, FarmError> {
@@ -511,3 +511,5 @@ impl Farm {
         get_receipt_token_id_internal(&e)
     }
 }
+
+mod test;

@@ -269,7 +269,7 @@ pub trait VaultTrait {
         treasury: Address,
         min_deposit: u128,
         bond_symbol: String,
-    ) -> Result<(), VaultError>;
+    ) -> Result<String, VaultError>;
     
     // Returns the token contract address for the vault share token
     fn bond_id(e: Env) -> Result<Address, VaultError>;
@@ -298,13 +298,13 @@ pub trait VaultTrait {
 
     fn quote(e: Env) -> Result<i128, VaultError>;
 
-    fn set_quote(e: Env, amount: i128) -> Result<(), VaultError>;
+    fn set_quote(e: Env, amount: i128) -> Result<i128, VaultError>; // Updated return type
 
-    fn set_total_redemption(e: Env, amount: i128) -> Result<(), VaultError>;
+    fn set_total_redemption(e: Env, amount: i128) -> Result<i128, VaultError>; // Updated return type
 
-    fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError>;
+    fn set_treasury(e: Env, treasury: Address) -> Result<Address, VaultError>; // Updated return type
 
-    fn set_admin(e: Env, new_admin: Address) -> Result<(), VaultError>;
+    fn set_admin(e: Env, new_admin: Address) -> Result<Address, VaultError>; // Updated return type
 }
 
 #[contract]
@@ -312,66 +312,67 @@ struct Vault;
 
 #[contractimpl]
 impl VaultTrait for Vault {
-    fn initialize(
-        e: Env,
-        token_wasm_hash: BytesN<32>,
-        token: Address,
-        admin: Address,
-        start_time: u64,
-        end_time: u64,
-        quote_period: u64,
-        treasury: Address,
-        min_deposit: u128,
-        bond_symbol: String,
-    ) -> Result<(), VaultError> {
-        let share_contract_id = create_contract(&e, token_wasm_hash, &token);
-        token::Client::new(&e, &share_contract_id).initialize(
-            &e.current_contract_address(),
-            &7u32,
-            &"bondHive".into_val(&e),
-            &bond_symbol.into_val(&e),
-        );
-    
-        put_token(&e, token);
-        put_token_share(&e, share_contract_id);
-        put_admin(&e, admin);
-        put_start_time(&e, start_time);
-        put_end_time(&e, end_time);
-        put_total_shares(&e, 0);
-        put_total_deposit(&e, 0);
-        put_available_redemption(&e, 0);
-        put_current_quote(&e, 0);
-        put_quote_period(&e, quote_period);
-        put_treasury(&e, treasury);
-        put_min_deposit(&e, min_deposit);
-    
-        e.events().publish(
-            (symbol_short!("VAULT"), symbol_short!("init")),
-            (e.current_contract_address(), start_time, end_time),
-        );
-    
-        Ok(())
-    }    
+        fn initialize(
+            e: Env,
+            token_wasm_hash: BytesN<32>,
+            token: Address,
+            admin: Address,
+            start_time: u64,
+            end_time: u64,
+            quote_period: u64,
+            treasury: Address,
+            min_deposit: u128,
+            bond_symbol: String,
+        ) -> Result<String, VaultError> {
+            let share_contract_id = create_contract(&e, token_wasm_hash, &token);
+            token::Client::new(&e, &share_contract_id).initialize(
+                &e.current_contract_address(),
+                &7u32,
+                &"bondHive".into_val(&e),
+                &bond_symbol.into_val(&e),
+            );
+        
+            put_token(&e, token);
+            put_token_share(&e, share_contract_id);
+            put_admin(&e, admin);
+            put_start_time(&e, start_time);
+            put_end_time(&e, end_time);
+            put_total_shares(&e, 0);
+            put_total_deposit(&e, 0);
+            put_available_redemption(&e, 0);
+            put_current_quote(&e, 0);
+            put_quote_period(&e, quote_period);
+            put_treasury(&e, treasury);
+            put_min_deposit(&e, min_deposit);
+        
+            e.events().publish(
+                (symbol_short!("VAULT"), symbol_short!("init")),
+                (e.current_contract_address(), start_time, end_time),
+            );
+        
+            Ok(String::from_str(&e, "Ok"))
+        }
 
     fn quote(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
         get_current_quote(&e).or_else(|_| Ok(0))
     }
 
-    fn set_quote(e: Env, amount: i128) -> Result<(), VaultError> {
+    fn set_quote(e: Env, amount: i128) -> Result<i128, VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
-
+    
         check_nonnegative_amount(amount)?;
         extend_instance_ttl(&e);
         put_current_quote(&e, amount);
         put_quote_expiration(&e)?;
-
+    
         e.events()
             .publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
-
-        Ok(())
+    
+        Ok(amount)
     }
+    
 
     fn bond_id(e: Env) -> Result<Address, VaultError> {
         extend_instance_ttl(&e);
@@ -448,10 +449,10 @@ impl VaultTrait for Vault {
         get_available_redemption(&e)
     }
 
-    fn set_total_redemption(e: Env, amount: i128) -> Result<(), VaultError> {
+    fn set_total_redemption(e: Env, amount: i128) -> Result<i128, VaultError> {
         check_nonnegative_amount(amount)?;
         extend_instance_ttl(&e);
-
+    
         if time(&e) < get_end_time(&e)? {
             return Err(VaultError::MaturityNotReached);
         }
@@ -460,25 +461,12 @@ impl VaultTrait for Vault {
         }
         let admin = get_admin(&e)?;
         admin.require_auth();
-
+    
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&admin, &e.current_contract_address(), &amount);
-
+    
         put_available_redemption(&e, amount);
-        Ok(())
-    }
-
-    fn set_treasury(e: Env, treasury: Address) -> Result<(), VaultError> {
-        let admin = get_admin(&e)?;
-        admin.require_auth();
-        extend_instance_ttl(&e);
-        e.events().publish(
-            (symbol_short!("TREASURY"), symbol_short!("set")),
-            treasury.clone(),
-        );
-        put_treasury(&e, treasury);
-
-        Ok(())
+        Ok(amount)
     }
 
     fn admin(e: Env) -> Result<Address, VaultError> {
@@ -486,7 +474,20 @@ impl VaultTrait for Vault {
         get_admin(&e)
     }
 
-    fn set_admin(e: Env, new_admin: Address) -> Result<(), VaultError> {
+    fn set_treasury(e: Env, treasury: Address) -> Result<Address, VaultError> {
+        let admin = get_admin(&e)?;
+        admin.require_auth();
+        extend_instance_ttl(&e);
+        e.events().publish(
+            (symbol_short!("TREASURY"), symbol_short!("set")),
+            treasury.clone(),
+        );
+        put_treasury(&e, treasury.clone());
+    
+        Ok(treasury)
+    }
+
+    fn set_admin(e: Env, new_admin: Address) -> Result<Address, VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
         extend_instance_ttl(&e);
@@ -494,10 +495,10 @@ impl VaultTrait for Vault {
             (symbol_short!("ADMIN"), symbol_short!("changed")),
             new_admin.clone(),
         );
-        put_admin(&e, new_admin);
-
-        Ok(())
-    }
+        put_admin(&e, new_admin.clone());
+    
+        Ok(new_admin)
+    }    
 
     fn maturity(e: Env) -> Result<u64, VaultError> {
         extend_instance_ttl(&e);

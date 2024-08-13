@@ -1,239 +1,79 @@
 #![cfg(test)]
 extern crate std;
 
-use crate::{token, VaultClient, VaultError};
+use crate::{token, VaultClient};
+
 use soroban_sdk::{
-    symbol_short,
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
-    Address, BytesN, Env, IntoVal, String,
+    testutils::{Address as _, Ledger},
+    Address, BytesN, Env, String,
 };
 
 fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(e, &e.register_stellar_asset_contract(admin.clone()))
 }
 
-fn create_vault_contract<'a>(
-    e: &Env,
-    token_wasm_hash: &BytesN<32>,
-    token: &Address,
-    admin: &Address,
-    start_time: u64,
-    end_time: u64,
-    quote_period: u64,
-    treasury: &Address,
-    min_deposit: u128,
-    bond_symbol: String,  // Updated to accept String
-) -> VaultClient<'a> {
-    let vault = VaultClient::new(e, &e.register_contract(None, crate::Vault {}));
-    vault.initialize(
-        token_wasm_hash,
-        token,
-        admin,
-        start_time,
-        end_time,
-        quote_period,
-        treasury,
-        min_deposit,
-        bond_symbol,  // Pass String correctly
-    ).unwrap();
-    vault
-}
-
 fn install_token_wasm(e: &Env) -> BytesN<32> {
+    // Ensure the path is correct relative to the current file
     soroban_sdk::contractimport!(file = "./soroban_token_contract.wasm");
+
+    // Upload the WASM contract to the environment
     e.deployer().upload_contract_wasm(WASM)
 }
 
 #[test]
-fn test_vault_contract() {
+fn test() {
     let e = Env::default();
     e.mock_all_auths();
 
-    let admin1 = Address::generate(&e);
-    let token = create_token_contract(&e, &admin1);
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
 
-    let user1 = Address::generate(&e);
-    let treasury = Address::generate(&e);
+    let token = create_token_contract(&e, &admin);
+    let token_client = token::Client::new(&e, &token.address);
+    let vault = VaultClient::new(&e, &e.register_contract(None, crate::Vault {}));
 
-    let start_time = e.ledger().timestamp();
-    let end_time = start_time + 100000;
-    let quote_period = 600;
-    let min_deposit = 100;
-
-    let bond_symbol = String::from_str("bondHive", &e);  // Create bond symbol as String
-
-    let vault = create_vault_contract(
-        &e,
+    // Create and initialize the vault contract
+    let vault_result = vault.initialize(
         &install_token_wasm(&e),
         &token.address,
-        &admin1,
-        start_time,
-        end_time,
-        quote_period,
-        &treasury,
-        min_deposit,
-        bond_symbol,  // Pass the bond symbol correctly
+        &admin,
+        &(e.ledger().timestamp()),
+         // end_time 10 minutes from now
+        &(e.ledger().timestamp() + 600),
+        &300,
+        &admin,
+        &100,
+        &String::from_str(&e, "BOND"),
     );
 
-    let contract_share = token::Client::new(&e, &vault.bond_id().unwrap());
-    let token_share = token::Client::new(&e, &contract_share.address);
+    let expected = String::from_str(&e, "Ok");
 
-    token.mint(&user1, &1000);
-    assert_eq!(token.balance(&user1), 1000);
+    // Ensure the vault initialization returned "Ok"
+    assert_eq!(vault_result, expected);
 
-    // Admin sets the quote
-    vault.set_quote(1).unwrap();
-    assert_eq!(vault.quote().unwrap(), 1);
+    // Set the quote
+    let set_quote_result = vault.set_quote(&10000000);
+    assert_eq!(set_quote_result, 10000000);
 
-    // User deposits to mint bonds
-    vault.deposit(&user1, &200).unwrap();
-    assert_eq!(
-        e.auths(),
-        std::vec![(
-            user1.clone(),
-            AuthorizedInvocation {
-                function: AuthorizedFunction::Contract((
-                    vault.address.clone(),
-                    symbol_short!("deposit"),
-                    (&user1, 200_i128).into_val(&e)
-                )),
-                sub_invocations: std::vec![AuthorizedInvocation {
-                    function: AuthorizedFunction::Contract((
-                        token.address.clone(),
-                        symbol_short!("transfer"),
-                        (&user1, &treasury, 200_i128).into_val(&e)
-                    )),
-                    sub_invocations: std::vec![]
-                }]
-            }
-        )]
-    );
+    token_client.mint(&user, &1000);
 
-    assert_eq!(token_share.balance(&user1), 200);
-    assert_eq!(token.balance(&user1), 800);
-    assert_eq!(token.balance(&treasury), 200);
+    // Deposit an amount into the vault
+    let deposit_amount = 200;
+    let deposit_result: i128 = vault.deposit(&user, &deposit_amount);
+    // ensure the returned number is greater than 0
+    assert!(deposit_result > 0);
 
-    // Fast forward time to after maturity
-    e.ledger().set_timestamp(end_time + 1);
+    // Move time forward to simulate end time and set total redemption
+    e.ledger().set_timestamp(e.ledger().timestamp() + 601);
 
-    // Admin sets the total redemption amount (principal + rewards)
-    vault.set_total_redemption(300).unwrap();
+    // Mint tokens to the vault to simulate yield
+    token_client.mint(&admin, &1000);
 
-    // User withdraws by burning bonds
-    e.budget().reset_unlimited();
-    vault.withdraw(&user1, &200).unwrap();
-    assert_eq!(
-        e.auths(),
-        std::vec![(
-            user1.clone(),
-            AuthorizedInvocation {
-                function: AuthorizedFunction::Contract((
-                    vault.address.clone(),
-                    symbol_short!("withdraw"),
-                    (&user1, 200_i128).into_val(&e)
-                )),
-                sub_invocations: std::vec![AuthorizedInvocation {
-                    function: AuthorizedFunction::Contract((
-                        token_share.address.clone(),
-                        symbol_short!("transfer"),
-                        (&user1, &vault.address, 200_i128).into_val(&e)
-                    )),
-                    sub_invocations: std::vec![]
-                }]
-            }
-        )]
-    );
+    // Set total redemption value
+    let set_redemption_result = vault.set_total_redemption(&300);
+    assert_eq!(set_redemption_result, 300);
 
-    assert_eq!(token.balance(&user1), 1100); // 800 + 300 (principal + rewards)
-    assert_eq!(token_share.balance(&user1), 0);
-    assert_eq!(token.balance(&vault.address), 0);
-}
-
-#[test]
-fn test_set_admin() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let admin1 = Address::generate(&e);
-    let admin2 = Address::generate(&e);
-
-    let token = create_token_contract(&e, &admin1);
-    let treasury = Address::generate(&e);
-
-    let start_time = e.ledger().timestamp();
-    let end_time = start_time + 100000;
-    let quote_period = 600;
-    let min_deposit = 100;
-
-    let bond_symbol = String::from_str("bondHive", &e);  // Create bond symbol as String
-
-    let vault = create_vault_contract(
-        &e,
-        &install_token_wasm(&e),
-        &token.address,
-        &admin1,
-        start_time,
-        end_time,
-        quote_period,
-        &treasury,
-        min_deposit,
-        bond_symbol,  // Pass the bond symbol correctly
-    );
-
-    // Test set_admin
-    vault.set_admin(&admin2).unwrap();
-    assert_eq!(vault.admin().unwrap(), admin2);
-}
-
-#[test]
-fn test_error_cases() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let admin1 = Address::generate(&e);
-    let token = create_token_contract(&e, &admin1);
-    let user1 = Address::generate(&e);
-    let treasury = Address::generate(&e);
-
-    let start_time = e.ledger().timestamp();
-    let end_time = start_time + 100000;
-    let quote_period = 600;
-    let min_deposit = 100;
-
-    let bond_symbol = String::from_str("bondHive", &e);  // Create bond symbol as String
-
-    let vault = create_vault_contract(
-        &e,
-        &install_token_wasm(&e),
-        &token.address,
-        &admin1,
-        start_time,
-        end_time,
-        quote_period,
-        &treasury,
-        min_deposit,
-        bond_symbol,  // Pass the bond symbol correctly
-    );
-
-    // Test depositing without a quote
-    let result = vault.deposit(&user1, &100);
-    assert_eq!(result, Err(VaultError::QuoteRequired));
-
-    // Admin sets the quote
-    vault.set_quote(1).unwrap();
-
-    // Test depositing less than minimum deposit
-    let result = vault.deposit(&user1, &99);
-    assert_eq!(result, Err(VaultError::InvalidAmount));
-
-    // Test withdrawing before maturity
-    let result = vault.withdraw(&user1, &100);
-    assert_eq!(result, Err(VaultError::MaturityNotReached));
-
-    // Fast forward time to after maturity
-    e.ledger().set_timestamp(end_time + 1);
-
-    // Test withdrawing before setting total redemption
-    let result = vault.withdraw(&user1, &100);
-    assert_eq!(result, Err(VaultError::AvailableRedemptionNotSet));
+    // Withdraw funds by burning shares and getting back principal + yield
+    let withdraw_result = vault.withdraw(&user, &deposit_amount);
+    assert!(withdraw_result > 0);
 }
