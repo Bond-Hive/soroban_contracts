@@ -36,6 +36,7 @@ fn test_farm() {
         &rewarded_token1.address,
         &rewarded_token2.address,
         &install_token_wasm(&e),
+        &(e.ledger().timestamp() + 10000),
     );
     let expected = String::from_str(&e, "Ok");
 
@@ -46,7 +47,6 @@ fn test_farm() {
     let pool_id = farm.create_pool(
         &token_to_farm.address,
         &(e.ledger().timestamp()),
-        &(e.ledger().timestamp() + 10000),
         &1, // Reward ratio 1
         &1, // Reward ratio 2
     );

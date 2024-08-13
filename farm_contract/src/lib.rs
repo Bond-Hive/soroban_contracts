@@ -3,7 +3,8 @@
 mod token;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, String, Address, BytesN, Env, Map,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
+    String,
 };
 
 use token::create_contract;
@@ -24,6 +25,7 @@ pub enum DataKey {
     PoolMap = 6,           // DataKey for Pool Map
     PoolCounter = 7,       // DataKey for pool counter
     UserMap = 8,           // DataKey for User Data Map
+    Maturity = 9,          // DataKey for Maturity
 }
 
 #[contracterror]
@@ -45,7 +47,6 @@ pub enum FarmError {
 pub struct Pool {
     pub token: Address,
     pub start_time: u64,
-    pub expiration_date: u64,
     pub reward_ratio1: i128,
     pub reward_ratio2: i128,
 }
@@ -84,8 +85,23 @@ fn get_admin(e: &Env) -> Result<Address, FarmError> {
 }
 
 fn put_rewarded_tokens(e: &Env, token1: Address, token2: Address) {
-    e.storage().instance().set(&DataKey::RewardedToken1, &token1);
-    e.storage().instance().set(&DataKey::RewardedToken2, &token2);
+    e.storage()
+        .instance()
+        .set(&DataKey::RewardedToken1, &token1);
+    e.storage()
+        .instance()
+        .set(&DataKey::RewardedToken2, &token2);
+}
+
+fn put_maturity(e: &Env, maturity: u64) {
+    e.storage().instance().set(&DataKey::Maturity, &maturity);
+}
+
+fn get_maturity(e: &Env) -> Result<u64, FarmError> {
+    e.storage()
+        .instance()
+        .get(&DataKey::Maturity)
+        .ok_or(FarmError::NotInitialized)
 }
 
 fn get_rewarded_token1(e: &Env) -> Result<Address, FarmError> {
@@ -103,18 +119,32 @@ fn get_rewarded_token2(e: &Env) -> Result<Address, FarmError> {
 }
 
 fn put_allocated_rewards(e: &Env, allocated1: i128, allocated2: i128) {
-    e.storage().instance().set(&DataKey::AllocatedRewards1, &allocated1);
-    e.storage().instance().set(&DataKey::AllocatedRewards2, &allocated2);
+    e.storage()
+        .instance()
+        .set(&DataKey::AllocatedRewards1, &allocated1);
+    e.storage()
+        .instance()
+        .set(&DataKey::AllocatedRewards2, &allocated2);
 }
 
 fn get_allocated_rewards(e: &Env) -> Result<(i128, i128), FarmError> {
-    let allocated1: i128 = e.storage().instance().get(&DataKey::AllocatedRewards1).unwrap_or(Ok(0))?;
-    let allocated2: i128 = e.storage().instance().get(&DataKey::AllocatedRewards2).unwrap_or(Ok(0))?;
+    let allocated1: i128 = e
+        .storage()
+        .instance()
+        .get(&DataKey::AllocatedRewards1)
+        .unwrap_or(Ok(0))?;
+    let allocated2: i128 = e
+        .storage()
+        .instance()
+        .get(&DataKey::AllocatedRewards2)
+        .unwrap_or(Ok(0))?;
     Ok((allocated1, allocated2))
 }
 
 fn put_token_share(e: &Env, token_share: Address) {
-    e.storage().instance().set(&DataKey::TokenShare, &token_share);
+    e.storage()
+        .instance()
+        .set(&DataKey::TokenShare, &token_share);
 }
 
 fn get_receipt_token_id_internal(e: &Env) -> Result<Address, FarmError> {
@@ -172,7 +202,7 @@ fn remove_user_data(e: &Env, withdrawer: &Address, pool_id: u32) -> Result<(), F
         .instance()
         .get(&DataKey::UserMap)
         .unwrap_or(Map::new(&e));
-    
+
     user_map.remove((withdrawer.clone(), pool_id));
     e.storage().instance().set(&DataKey::UserMap, &user_map);
 
@@ -236,6 +266,7 @@ impl Farm {
         rewarded_token1: Address,
         rewarded_token2: Address,
         token_wasm_hash: BytesN<32>,
+        maturity: u64,
     ) -> Result<String, FarmError> {
         // Create the receipt token contract and initialize it
         let receipt_token_id = create_contract(&e, token_wasm_hash, &e.current_contract_address());
@@ -250,6 +281,7 @@ impl Farm {
         put_admin(&e, &admin);
         put_token_share(&e, receipt_token_id);
         put_rewarded_tokens(&e, rewarded_token1, rewarded_token2);
+        put_maturity(&e, maturity);
         put_allocated_rewards(&e, 0, 0); // Initialize global allocated rewards
         put_pool_counter(&e, 0); // Initialize pool counter
 
@@ -260,7 +292,6 @@ impl Farm {
         e: Env,
         token: Address,
         start_time: u64,
-        expiration_date: u64,
         reward_ratio1: i128,
         reward_ratio2: i128,
     ) -> Result<u32, FarmError> {
@@ -272,7 +303,6 @@ impl Farm {
         let pool = Pool {
             token,
             start_time,
-            expiration_date,
             reward_ratio1,
             reward_ratio2,
         };
@@ -282,10 +312,8 @@ impl Farm {
         counter += 1;
         put_pool_counter(&e, counter);
 
-        e.events().publish(
-            (symbol_short!("NewPool"), admin.clone()),
-            counter - 1,
-        );
+        e.events()
+            .publish((symbol_short!("NewPool"), admin.clone()), counter - 1);
 
         Ok(counter - 1)
     }
@@ -317,21 +345,21 @@ impl Farm {
             accrued_rewards2: 0,
         });
 
+        let maturity = get_maturity(&e);
+
         let time_elapsed = core::cmp::min(
             current_time - user_data.deposit_time,
-            pool.expiration_date - user_data.deposit_time,
+            maturity? - user_data.deposit_time,
         );
-        let time_to_maturity = pool.expiration_date - current_time;
+        let time_to_maturity = maturity? - current_time;
 
         let accrued_yield1 = if pool.reward_ratio1 > 0 {
-            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
         let accrued_yield2 = if pool.reward_ratio2 > 0 {
-            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
@@ -344,7 +372,11 @@ impl Farm {
         user_data.deposited += amount;
         user_data.deposit_time = current_time; // Reset deposit time to the time of the new deposit
 
-        token::Client::new(&e, &pool.token).transfer(&depositor, &e.current_contract_address(), &amount);
+        token::Client::new(&e, &pool.token).transfer(
+            &depositor,
+            &e.current_contract_address(),
+            &amount,
+        );
         put_user_data(&e, depositor.clone(), pool_id, user_data);
 
         mint_receipt_tokens(&e, &depositor, amount)?;
@@ -378,10 +410,8 @@ impl Farm {
         allocated_rewards2 += potential_yield2;
         put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
 
-        e.events().publish(
-            (symbol_short!("Deposit"), depositor.clone()),
-            amount,
-        );
+        e.events()
+            .publish((symbol_short!("Deposit"), depositor.clone()), amount);
 
         Ok(amount)
     }
@@ -410,19 +440,19 @@ impl Farm {
             return Err(FarmError::PoolNotActive);
         }
 
+        let maturity = get_maturity(&e);
+
         let time_elapsed = core::cmp::min(
             current_time - user_data.deposit_time,
-            pool.expiration_date - user_data.deposit_time,
+            maturity? - user_data.deposit_time,
         );
         let total_yield1 = if pool.reward_ratio1 > 0 {
-            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
         let total_yield2 = if pool.reward_ratio2 > 0 {
-            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
@@ -430,8 +460,11 @@ impl Farm {
         // Burn receipt tokens corresponding to the withdrawn amount
         if amount > 0 {
             burn_receipt_tokens(&e, &withdrawer, amount)?;
-            token::Client::new(&e, &pool.token)
-                .transfer(&e.current_contract_address(), &withdrawer, &amount);
+            token::Client::new(&e, &pool.token).transfer(
+                &e.current_contract_address(),
+                &withdrawer,
+                &amount,
+            );
         }
 
         if user_data.accrued_rewards1 + total_yield1 > 0 {
@@ -451,7 +484,7 @@ impl Farm {
         }
 
         // Adjust allocated rewards if the user withdraws early
-        let time_to_maturity = pool.expiration_date - current_time;
+        let time_to_maturity = maturity? - current_time;
         let full_yield1 = if pool.reward_ratio1 > 0 {
             (amount * pool.reward_ratio1 * time_to_maturity as i128) / 10i128.pow(DECIMALS)
         } else {
@@ -483,10 +516,8 @@ impl Farm {
             remove_user_data(&e, &withdrawer, pool_id)?;
         }
 
-        e.events().publish(
-            (symbol_short!("Withdraw"), withdrawer.clone()),
-            amount,
-        );
+        e.events()
+            .publish((symbol_short!("Withdraw"), withdrawer.clone()), amount);
 
         Ok(amount)
     }
@@ -498,10 +529,8 @@ impl Farm {
 
         put_admin(&e, &new_admin);
 
-        e.events().publish(
-            (symbol_short!("AdminChg"), new_admin.clone()),
-            new_admin,
-        );
+        e.events()
+            .publish((symbol_short!("AdminChg"), new_admin.clone()), new_admin);
 
         Ok(String::from_str(&e, "Ok"))
     }
@@ -509,6 +538,51 @@ impl Farm {
     pub fn get_receipt_token_id(e: Env) -> Result<Address, FarmError> {
         extend_instance_ttl(&e);
         get_receipt_token_id_internal(&e)
+    }
+
+    pub fn withdraw_unallocated_rewards(e: Env, admin: Address) -> Result<(i128, i128), FarmError> {
+        admin.require_auth();
+
+        let current_time = time(&e);
+        let maturity = get_maturity(&e)?;
+
+        // Ensure that the current time is after the maturity date
+        if current_time < maturity {
+            return Err(FarmError::NotAuthorized);
+        }
+
+        let rewarded_token1 = get_rewarded_token1(&e)?;
+        let rewarded_token2 = get_rewarded_token2(&e)?;
+
+        let token_client1 = token::Client::new(&e, &rewarded_token1);
+        let token_client2 = token::Client::new(&e, &rewarded_token2);
+
+        // Get the current balance of the contract
+        let available_balance1 = token_client1.balance(&e.current_contract_address());
+        let available_balance2 = token_client2.balance(&e.current_contract_address());
+
+        // Get the total allocated rewards that should not be withdrawn
+        let (allocated_rewards1, allocated_rewards2) = get_allocated_rewards(&e)?;
+
+        // Calculate unallocated rewards
+        let unallocated_rewards1 = available_balance1 - allocated_rewards1;
+        let unallocated_rewards2 = available_balance2 - allocated_rewards2;
+
+        // Transfer unallocated rewards to the admin
+        if unallocated_rewards1 > 0 {
+            token_client1.transfer(&e.current_contract_address(), &admin, &unallocated_rewards1);
+        }
+
+        if unallocated_rewards2 > 0 {
+            token_client2.transfer(&e.current_contract_address(), &admin, &unallocated_rewards2);
+        }
+
+        e.events().publish(
+            (symbol_short!("Withdraw"), admin.clone()),
+            (unallocated_rewards1, unallocated_rewards2),
+        );
+
+        Ok((unallocated_rewards1, unallocated_rewards2))
     }
 }
 
