@@ -468,7 +468,7 @@ impl Farm {
     
         // Burn receipt tokens corresponding to the withdrawn amount
         if amount > 0 {
-            burn_receipt_tokens(&e, &withdrawer, amount)?;
+            burn_receipt_tokens(&e, &withdrawer, amount).map_err(|_| FarmError::ReceiptTokenMissing)?;
             token::Client::new(&e, &pool.token).transfer(
                 &e.current_contract_address(),
                 &withdrawer,
