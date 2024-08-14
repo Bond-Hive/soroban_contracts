@@ -40,7 +40,6 @@ pub enum FarmError {
     InsufficientRewards = 6,
     PoolNotFound = 7,
     UserNotFound = 8,
-    ReceiptTokenMissing = 9,
 }
 
 #[derive(Clone)]
@@ -327,23 +326,23 @@ impl Farm {
     ) -> Result<i128, FarmError> {
         depositor.require_auth();
         extend_instance_ttl(&e);
-    
+
         check_nonnegative_amount(amount)?;
         check_nonzero_amount(amount)?;
-    
+
         let pool = get_pool_data(&e, pool_id)?;
         let current_time = time(&e);
-    
+
         // Check if the current time has passed the maturity date
         let maturity = get_maturity(&e)?;
         if current_time >= maturity {
             return Err(FarmError::PoolNotActive);
         }
-    
+
         if current_time < pool.start_time {
             return Err(FarmError::PoolNotActive);
         }
-    
+
         // Get existing user data or initialize it
         let mut user_data = get_user_data(&e, depositor.clone(), pool_id).unwrap_or(UserData {
             deposited: 0,
@@ -351,13 +350,13 @@ impl Farm {
             accrued_rewards1: 0,
             accrued_rewards2: 0,
         });
-    
+
         let time_elapsed = core::cmp::min(
             current_time - user_data.deposit_time,
             maturity - user_data.deposit_time,
         );
         let time_to_maturity = maturity - current_time;
-    
+
         let accrued_yield1 = if pool.reward_ratio1 > 0 {
             (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
@@ -368,24 +367,24 @@ impl Farm {
         } else {
             0
         };
-    
+
         // Update the user's accrued rewards
         user_data.accrued_rewards1 += accrued_yield1;
         user_data.accrued_rewards2 += accrued_yield2;
-    
+
         // Add the new deposit to the existing deposit amount
         user_data.deposited += amount;
         user_data.deposit_time = current_time; // Reset deposit time to the time of the new deposit
-    
+
         token::Client::new(&e, &pool.token).transfer(
             &depositor,
             &e.current_contract_address(),
             &amount,
         );
         put_user_data(&e, depositor.clone(), pool_id, user_data);
-    
+
         mint_receipt_tokens(&e, &depositor, amount)?;
-    
+
         // Allocate the new potential yield based on the new total deposit
         let potential_yield1 = if pool.reward_ratio1 > 0 {
             (amount * pool.reward_ratio1 * time_to_maturity as i128) / 10i128.pow(DECIMALS)
@@ -397,10 +396,10 @@ impl Farm {
         } else {
             0
         };
-    
+
         // Get current allocated rewards and update them
         let (mut allocated_rewards1, mut allocated_rewards2) = get_allocated_rewards(&e)?;
-    
+
         // Check if there is enough balance in the contract to cover these new yields
         if !has_sufficient_rewards(
             &e,
@@ -409,17 +408,17 @@ impl Farm {
         )? {
             return Err(FarmError::InsufficientRewards);
         }
-    
+
         // Allocate the new rewards globally
         allocated_rewards1 += potential_yield1;
         allocated_rewards2 += potential_yield2;
         put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
-    
+
         e.events()
             .publish((symbol_short!("Deposit"), depositor.clone()), amount);
-    
+
         Ok(amount)
-    }    
+    }
 
     pub fn withdraw(
         e: Env,
@@ -444,38 +443,38 @@ impl Farm {
         if current_time < pool.start_time {
             return Err(FarmError::PoolNotActive);
         }
-    
+
         let maturity = get_maturity(&e)?;
-        
+
         // Ensure that the time elapsed only considers up to the maturity date
         let time_elapsed = if current_time > maturity {
             maturity - user_data.deposit_time
         } else {
             current_time - user_data.deposit_time
         };
-        
+
         let total_yield1 = if pool.reward_ratio1 > 0 {
             (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
-        
+
         let total_yield2 = if pool.reward_ratio2 > 0 {
             (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
-    
+
         // Burn receipt tokens corresponding to the withdrawn amount
         if amount > 0 {
-            burn_receipt_tokens(&e, &withdrawer, amount).map_err(|_| FarmError::ReceiptTokenMissing)?;
+            burn_receipt_tokens(&e, &withdrawer, amount)?;
             token::Client::new(&e, &pool.token).transfer(
                 &e.current_contract_address(),
                 &withdrawer,
                 &amount,
             );
         }
-    
+
         // Transfer accrued rewards up to the maturity date
         if user_data.accrued_rewards1 + total_yield1 > 0 {
             token::Client::new(&e, &get_rewarded_token1(&e)?).transfer(
@@ -492,7 +491,13 @@ impl Farm {
                 &(user_data.accrued_rewards2 + total_yield2),
             );
         }
-    
+
+        // how to set allocated rewards?
+
+        let (mut allocated_rewards1, mut allocated_rewards2) = get_allocated_rewards(&e)?;
+        allocated_rewards1 -= user_data.accrued_rewards1 + total_yield1;
+        allocated_rewards2 -= user_data.accrued_rewards2 + total_yield2;
+
         // Adjust allocated rewards if the user withdraws early (i.e., before maturity)
         if current_time < maturity {
             let time_to_maturity = maturity - current_time;
@@ -506,20 +511,23 @@ impl Farm {
             } else {
                 0
             };
-    
-            let (mut allocated_rewards1, mut allocated_rewards2) = get_allocated_rewards(&e)?;
-    
+
             // Reduce the global allocated rewards
             allocated_rewards1 -= full_yield1;
             allocated_rewards2 -= full_yield2;
             put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
+            user_data.deposit_time = current_time;
+
+        } else {
+            // Reduce the global allocated rewards by the total yield
+            put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
+            user_data.deposit_time = maturity;
         }
-    
+
         // Update the user's deposited balance and reset accrued rewards
         user_data.deposited -= amount;
         user_data.accrued_rewards1 = 0;
         user_data.accrued_rewards2 = 0;
-        user_data.deposit_time = current_time;
 
         if user_data.deposited > 0 {
             put_user_data(&e, withdrawer.clone(), pool_id, user_data);
@@ -532,7 +540,7 @@ impl Farm {
             .publish((symbol_short!("Withdraw"), withdrawer.clone()), amount);
 
         Ok(amount)
-    }    
+    }
 
     pub fn set_admin(e: Env, new_admin: Address) -> Result<String, FarmError> {
         let admin = get_admin(&e)?;
