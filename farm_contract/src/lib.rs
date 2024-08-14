@@ -515,14 +515,14 @@ impl Farm {
             // Reduce the global allocated rewards
             allocated_rewards1 -= full_yield1;
             allocated_rewards2 -= full_yield2;
-            put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
             user_data.deposit_time = current_time;
 
         } else {
             // Reduce the global allocated rewards by the total yield
-            put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
             user_data.deposit_time = maturity;
         }
+
+        put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
 
         // Update the user's deposited balance and reset accrued rewards
         user_data.deposited -= amount;
@@ -585,8 +585,8 @@ impl Farm {
         let (allocated_rewards1, allocated_rewards2) = get_allocated_rewards(&e)?;
 
         // Calculate unallocated rewards
-        let unallocated_rewards1 = available_balance1 - allocated_rewards1;
-        let unallocated_rewards2 = available_balance2 - allocated_rewards2;
+        let unallocated_rewards1 = core::cmp::max(available_balance1 - allocated_rewards1, 0);
+        let unallocated_rewards2 = core::cmp::max(available_balance2 - allocated_rewards2, 0);
 
         // Transfer unallocated rewards to the admin
         if unallocated_rewards1 > 0 {
