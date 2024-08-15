@@ -355,7 +355,6 @@ impl Farm {
             current_time - user_data.deposit_time,
             maturity - user_data.deposit_time,
         );
-        let time_to_maturity = maturity - current_time;
 
         let accrued_yield1 = if pool.reward_ratio1 > 0 {
             (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
@@ -368,22 +367,7 @@ impl Farm {
             0
         };
 
-        // Update the user's accrued rewards
-        user_data.accrued_rewards1 += accrued_yield1;
-        user_data.accrued_rewards2 += accrued_yield2;
-
-        // Add the new deposit to the existing deposit amount
-        user_data.deposited += amount;
-        user_data.deposit_time = current_time; // Reset deposit time to the time of the new deposit
-
-        token::Client::new(&e, &pool.token).transfer(
-            &depositor,
-            &e.current_contract_address(),
-            &amount,
-        );
-        put_user_data(&e, depositor.clone(), pool_id, user_data);
-
-        mint_receipt_tokens(&e, &depositor, amount)?;
+        let time_to_maturity = maturity - current_time;
 
         // Allocate the new potential yield based on the new total deposit
         let potential_yield1 = if pool.reward_ratio1 > 0 {
@@ -413,6 +397,22 @@ impl Farm {
         allocated_rewards1 += potential_yield1;
         allocated_rewards2 += potential_yield2;
         put_allocated_rewards(&e, allocated_rewards1, allocated_rewards2);
+
+        // Update the user's accrued rewards
+        user_data.accrued_rewards1 += accrued_yield1;
+        user_data.accrued_rewards2 += accrued_yield2;
+
+        // Add the new deposit to the existing deposit amount
+        user_data.deposited += amount;
+        user_data.deposit_time = current_time; // Reset deposit time to the time of the new deposit
+
+        token::Client::new(&e, &pool.token).transfer(
+            &depositor,
+            &e.current_contract_address(),
+            &amount,
+        );
+        mint_receipt_tokens(&e, &depositor, amount)?;
+        put_user_data(&e, depositor.clone(), pool_id, user_data);
 
         e.events()
             .publish((symbol_short!("Deposit"), depositor.clone()), amount);
@@ -447,11 +447,10 @@ impl Farm {
         let maturity = get_maturity(&e)?;
 
         // Ensure that the time elapsed only considers up to the maturity date
-        let time_elapsed = if current_time > maturity {
-            maturity - user_data.deposit_time
-        } else {
-            current_time - user_data.deposit_time
-        };
+        let time_elapsed = core::cmp::min(
+            current_time - user_data.deposit_time,
+            maturity - user_data.deposit_time,
+        );
 
         let total_yield1 = if pool.reward_ratio1 > 0 {
             (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
@@ -492,8 +491,6 @@ impl Farm {
             );
         }
 
-        // how to set allocated rewards?
-
         let (mut allocated_rewards1, mut allocated_rewards2) = get_allocated_rewards(&e)?;
         allocated_rewards1 -= user_data.accrued_rewards1 + total_yield1;
         allocated_rewards2 -= user_data.accrued_rewards2 + total_yield2;
@@ -516,7 +513,6 @@ impl Farm {
             allocated_rewards1 -= full_yield1;
             allocated_rewards2 -= full_yield2;
             user_data.deposit_time = current_time;
-
         } else {
             // Reduce the global allocated rewards by the total yield
             user_data.deposit_time = maturity;
@@ -553,11 +549,6 @@ impl Farm {
             .publish((symbol_short!("AdminChg"), new_admin.clone()), new_admin);
 
         Ok(String::from_str(&e, "Ok"))
-    }
-
-    pub fn get_receipt_token_id(e: Env) -> Result<Address, FarmError> {
-        extend_instance_ttl(&e);
-        get_receipt_token_id_internal(&e)
     }
 
     pub fn withdraw_unallocated_rewards(e: Env, admin: Address) -> Result<(i128, i128), FarmError> {
@@ -603,6 +594,58 @@ impl Farm {
         );
 
         Ok((unallocated_rewards1, unallocated_rewards2))
+    }
+
+    /// Public function to query the current pool counter.
+    pub fn get_current_pool_counter(e: Env) -> Result<u32, FarmError> {
+        extend_instance_ttl(&e);
+        get_pool_counter(&e)
+    }
+
+    /// Public function to query the maturity date.
+    pub fn get_maturity_date(e: Env) -> Result<u64, FarmError> {
+        extend_instance_ttl(&e);
+        get_maturity(&e)
+    }
+
+    /// Public function to query the receipt token ID.
+    pub fn get_receipt_token_id(e: Env) -> Result<Address, FarmError> {
+        extend_instance_ttl(&e);
+        get_receipt_token_id_internal(&e)
+    }
+
+    /// Public function to query the allocated rewards.
+    pub fn get_global_allocated_rewards(e: Env) -> Result<(i128, i128), FarmError> {
+        extend_instance_ttl(&e);
+        get_allocated_rewards(&e)
+    }
+
+    /// Public function to query the admin address.
+    pub fn get_admin_address(e: Env) -> Result<Address, FarmError> {
+        extend_instance_ttl(&e);
+        get_admin(&e)
+    }
+
+    /// Public function to query a specific pool's data.
+    pub fn get_pool_info(e: Env, pool_id: u32) -> Result<Pool, FarmError> {
+        extend_instance_ttl(&e);
+        get_pool_data(&e, pool_id)
+    }
+
+    /// Public function to query a user's data for a specific pool.
+    pub fn get_user_info(e: Env, user: Address, pool_id: u32) -> Result<UserData, FarmError> {
+        extend_instance_ttl(&e);
+        get_user_data(&e, user, pool_id)
+    }
+
+    /// Public function to query the reward token addresses.
+    pub fn get_reward_token_addresses(e: Env) -> Result<(Address, Address), FarmError> {
+        extend_instance_ttl(&e);
+        
+        let rewarded_token1 = get_rewarded_token1(&e)?;
+        let rewarded_token2 = get_rewarded_token2(&e)?;
+        
+        Ok((rewarded_token1, rewarded_token2))
     }
 }
 
