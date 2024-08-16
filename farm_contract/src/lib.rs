@@ -81,6 +81,9 @@ fn has_sufficient_rewards(e: &Env, required1: i128, required2: i128) -> Result<b
     let rewarded_token2 = get_rewarded_token2(e)?;
 
     let available1 = token::Client::new(e, &rewarded_token1).balance(&e.current_contract_address());
+    if rewarded_token2 == get_burn_wallet(e) {
+        return Ok(available1 >= required1);
+    }
     let available2 = token::Client::new(e, &rewarded_token2).balance(&e.current_contract_address());
 
     Ok(available1 >= required1 && available2 >= required2)
