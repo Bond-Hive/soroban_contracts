@@ -26,8 +26,7 @@ pub enum DataKey {
     PoolCounter = 7,       // DataKey for pool counter
     UserMap = 8,           // DataKey for User Data Map
     Maturity = 9,          // DataKey for Maturity
-    RewardStartTime2 = 10, // Reward 2 Start Time
-    BurnAddress = 11,      // Store the burn wallet address
+    BurnAddress = 10,      // Store the burn wallet address
 }
 
 #[contracterror]
@@ -42,10 +41,9 @@ pub enum FarmError {
     InsufficientRewards = 6,
     PoolNotFound = 7,
     UserNotFound = 8,
-    SameRewardTokens = 9, // Error when both reward tokens are the same
-    TokenConflict = 10,   // Error when farm token conflicts with reward tokens
+    SameRewardTokens = 9,           // Error when both reward tokens are the same
+    TokenConflict = 10,             // Error when farm token conflicts with reward tokens
     InsufficientReceiptTokens = 11, // Error when user has insufficient receipt tokens
-    InvalidRewardStartTime = 12, // Error if reward start time 2 is greater than maturity
 }
 
 #[derive(Clone)]
@@ -231,7 +229,7 @@ fn remove_user_data(e: &Env, withdrawer: &Address, pool_id: u32) -> Result<(), F
 
 fn get_token_client2(e: &Env) -> Option<token::Client> {
     let rewarded_token2 = get_rewarded_token2(e).ok()?;
-    
+
     if rewarded_token2 == get_burn_wallet(e) {
         None
     } else {
@@ -301,19 +299,6 @@ fn get_pool_counter(e: &Env) -> Result<u32, FarmError> {
         .unwrap_or(Ok(0))
 }
 
-fn put_reward_start_time2(e: &Env, start_time: u64) -> Result<(), FarmError> {
-    let maturity = get_maturity(e)?;
-    if start_time > maturity {
-        return Err(FarmError::InvalidRewardStartTime);
-    }
-    e.storage().instance().set(&DataKey::RewardStartTime2, &start_time);
-    Ok(())
-}
-
-fn get_reward_start_time2(e: &Env) -> Result<u64, FarmError> {
-    e.storage().instance().get(&DataKey::RewardStartTime2).unwrap_or(Ok(0))
-}
-
 #[contractimpl]
 impl Farm {
     pub fn initialize(
@@ -326,7 +311,9 @@ impl Farm {
         burn_wallet: Address, // Accept burn wallet address during initialization
     ) -> Result<String, FarmError> {
         // Store the burn wallet address
-        e.storage().instance().set(&DataKey::BurnAddress, &burn_wallet);
+        e.storage()
+            .instance()
+            .set(&DataKey::BurnAddress, &burn_wallet);
 
         // Create the receipt token contract and initialize it
         let receipt_token_id = create_contract(e, token_wasm_hash, &e.current_contract_address());
@@ -338,48 +325,23 @@ impl Farm {
         );
 
         // Ensure that the reward tokens are not the same as the farm token
-        if receipt_token_id == rewarded_token1 || receipt_token_id == rewarded_token2.clone().unwrap_or(burn_wallet.clone()) {
+        if receipt_token_id == rewarded_token1
+            || receipt_token_id == rewarded_token2.clone().unwrap_or(burn_wallet.clone())
+        {
             return Err(FarmError::TokenConflict);
         }
 
         // Store the admin, receipt token, and rewarded tokens in the contract's storage
         put_admin(e, &admin);
         put_token_share(e, receipt_token_id);
-        put_rewarded_tokens(e, rewarded_token1, rewarded_token2.clone().unwrap_or(burn_wallet.clone()))?;
+        put_rewarded_tokens(
+            e,
+            rewarded_token1,
+            rewarded_token2.clone().unwrap_or(burn_wallet.clone()),
+        )?;
         put_maturity(e, maturity);
         put_allocated_rewards(e, 0, 0); // Initialize global allocated rewards
         put_pool_counter(e, 0); // Initialize pool counter
-        if get_rewarded_token2(e)? != burn_wallet.clone() {
-            put_reward_start_time2(e, time(e))?;
-        } else {
-            put_reward_start_time2(e, 0)?;
-        }
-
-        Ok(String::from_str(e, "Ok"))
-    }
-
-    // Function to set reward token 2 after initialization
-    pub fn set_rewarded_token2(
-        e: &Env,
-        new_rewarded_token2: Address,
-    ) -> Result<String, FarmError> {
-        let admin = get_admin(e)?;
-        admin.require_auth();
-
-        // Check if RewardedToken2 is already set to something other than the burn address
-        let current_rewarded_token2 = get_rewarded_token2(e)?;
-        if current_rewarded_token2 != get_burn_wallet(e) {
-            return Err(FarmError::NotAuthorized);
-        }
-
-        // Ensure the new reward token is not the same as the farm token
-        let receipt_token_id = get_receipt_token_id_internal(e)?;
-        if new_rewarded_token2 == receipt_token_id || new_rewarded_token2 == get_rewarded_token1(e)? {
-            return Err(FarmError::TokenConflict);
-        }
-
-        put_rewarded_tokens(e, get_rewarded_token1(e)?, new_rewarded_token2.clone())?;
-        put_reward_start_time2(e, time(e))?;
 
         Ok(String::from_str(e, "Ok"))
     }
@@ -452,62 +414,39 @@ impl Farm {
             accrued_rewards2: 0,
         });
 
-        let time_elapsed1 = core::cmp::min(
+        let time_elapsed = core::cmp::min(
             current_time - user_data.deposit_time,
             maturity - user_data.deposit_time,
         );
 
-        // Calculate the time elapsed for Reward 2 (if applicable)
-        let reward_start_time2 = get_reward_start_time2(e)?;
-        let start_time = if user_data.deposit_time < reward_start_time2 {
-            reward_start_time2
-        } else {
-            user_data.deposit_time
-        };
-
-        let time_elapsed2 = if start_time > current_time { 
-            0 
-        } else {
-            current_time - start_time 
-        };
-
-        let time_elapsed2 = core::cmp::min(time_elapsed2, maturity - start_time);
-
         let accrued_yield1 = if pool.reward_ratio1 > 0 {
-            (user_data.deposited * pool.reward_ratio1 * time_elapsed1 as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
 
-        let accrued_yield2 = if pool.reward_ratio2 > 0 && get_rewarded_token2(e)? != get_burn_wallet(e)
+        let accrued_yield2 = if pool.reward_ratio2 > 0
+            && get_rewarded_token2(e)? != get_burn_wallet(e)
         {
-            (user_data.deposited * pool.reward_ratio2 * time_elapsed2 as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
 
-        let time_to_maturity1 = maturity - current_time;
-        let time_to_maturity2 = if current_time > start_time {
-            maturity - current_time
-        } else {
-            0
-        };
+        let time_to_maturity = maturity - current_time;
 
         // Allocate the new potential yield based on the new total deposit
         let potential_yield1 = if pool.reward_ratio1 > 0 {
-            (amount * pool.reward_ratio1 * time_to_maturity1 as i128) / 10i128.pow(DECIMALS)
+            (amount * pool.reward_ratio1 * time_to_maturity as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
-
-        let potential_yield2 = if pool.reward_ratio2 > 0 && get_rewarded_token2(e)? != get_burn_wallet(e)
-        {
-            (amount * pool.reward_ratio2 * time_to_maturity2 as i128) / 10i128.pow(DECIMALS)
-        } else {
-            0
-        };
+        let potential_yield2 =
+            if pool.reward_ratio2 > 0 && get_rewarded_token2(e)? != get_burn_wallet(e) {
+                (amount * pool.reward_ratio2 * time_to_maturity as i128) / 10i128.pow(DECIMALS)
+            } else {
+                0
+            };
 
         // Get current allocated rewards and update them
         let (mut allocated_rewards1, mut allocated_rewards2) = get_allocated_rewards(e)?;
@@ -576,34 +515,21 @@ impl Farm {
         let maturity = get_maturity(e)?;
 
         // Ensure that the time elapsed only considers up to the maturity date
-        let time_elapsed1 = core::cmp::min(
+        let time_elapsed = core::cmp::min(
             current_time - user_data.deposit_time,
             maturity - user_data.deposit_time,
         );
 
-        let reward_start_time2 = get_reward_start_time2(e)?;
-        let start_time = if user_data.deposit_time < reward_start_time2 {
-            reward_start_time2
-        } else {
-            user_data.deposit_time
-        };
-        let time_elapsed2 = if start_time > current_time { 
-            0 
-        } else {
-            current_time - start_time 
-        };
-        let time_elapsed2 = core::cmp::min(time_elapsed2, maturity - start_time);
         let total_yield1 = if pool.reward_ratio1 > 0 {
-            (user_data.deposited * pool.reward_ratio1 * time_elapsed1 as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
 
-        let total_yield2 = if pool.reward_ratio2 > 0 && get_rewarded_token2(e)? != get_burn_wallet(e)
+        let total_yield2 = if pool.reward_ratio2 > 0
+            && get_rewarded_token2(e)? != get_burn_wallet(e)
         {
-            (user_data.deposited * pool.reward_ratio2 * time_elapsed2 as i128)
-                / 10i128.pow(DECIMALS)
+            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128) / 10i128.pow(DECIMALS)
         } else {
             0
         };
@@ -641,23 +567,18 @@ impl Farm {
 
         // Adjust allocated rewards if the user withdraws early (i.e., before maturity)
         if current_time < maturity {
-            let time_to_maturity1 = maturity - current_time;
-            let time_to_maturity2 = if current_time > start_time {
-                maturity - current_time
-            } else {
-                0
-            };
+            let time_to_maturity = maturity - current_time;
             let full_yield1 = if pool.reward_ratio1 > 0 {
-                (amount * pool.reward_ratio1 * time_to_maturity1 as i128) / 10i128.pow(DECIMALS)
+                (amount * pool.reward_ratio1 * time_to_maturity as i128) / 10i128.pow(DECIMALS)
             } else {
                 0
             };
-            let full_yield2 = if pool.reward_ratio2 > 0 && get_rewarded_token2(e)? != get_burn_wallet(e)
-            {
-                (amount * pool.reward_ratio2 * time_to_maturity2 as i128) / 10i128.pow(DECIMALS)
-            } else {
-                0
-            };
+            let full_yield2 =
+                if pool.reward_ratio2 > 0 && get_rewarded_token2(e)? != get_burn_wallet(e) {
+                    (amount * pool.reward_ratio2 * time_to_maturity as i128) / 10i128.pow(DECIMALS)
+                } else {
+                    0
+                };
 
             // Reduce the global allocated rewards
             allocated_rewards1 -= full_yield1;
@@ -701,7 +622,10 @@ impl Farm {
         Ok(String::from_str(e, "Ok"))
     }
 
-    pub fn withdraw_unallocated_rewards(e: &Env, admin: Address) -> Result<(i128, i128), FarmError> {
+    pub fn withdraw_unallocated_rewards(
+        e: &Env,
+        admin: Address,
+    ) -> Result<(i128, i128), FarmError> {
         admin.require_auth();
 
         let current_time = time(e);
@@ -724,7 +648,9 @@ impl Farm {
         let token_client2 = get_token_client2(e); // Get token client 2 if it exists
 
         // Get the current balance of the contract
-        let available_balance2 = token_client2.as_ref().map_or(0, |client| client.balance(&e.current_contract_address()));
+        let available_balance2 = token_client2
+            .as_ref()
+            .map_or(0, |client| client.balance(&e.current_contract_address()));
 
         // Calculate unallocated rewards
         let unallocated_rewards2 = core::cmp::max(available_balance2 - allocated_rewards2, 0);
@@ -793,10 +719,10 @@ impl Farm {
     /// Public function to query the reward token addresses.
     pub fn get_reward_token_addresses(e: &Env) -> Result<(Address, Address), FarmError> {
         extend_instance_ttl(e);
-        
+
         let rewarded_token1 = get_rewarded_token1(&e)?;
         let rewarded_token2 = get_rewarded_token2(&e)?;
-        
+
         Ok((rewarded_token1, rewarded_token2))
     }
 }
