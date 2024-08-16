@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "bond_contract",
+    "farm_contract",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+soroban-sdk = "21.4.0"
+num-integer = { version = "0.1.45", default-features = false, features = ["i128"] }

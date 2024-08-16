@@ -12,7 +12,7 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
 }
 
 fn install_token_wasm(e: &Env) -> BytesN<32> {
-    soroban_sdk::contractimport!(file = "./soroban_token_contract.wasm");
+    soroban_sdk::contractimport!(file = "../soroban_token_contract.wasm");
     e.deployer().upload_contract_wasm(WASM)
 }
 
@@ -28,15 +28,18 @@ fn test_farm() {
     let rewarded_token2 = create_token_contract(&e, &admin);
     let token_to_farm = create_token_contract(&e, &admin);
 
+    let burn_wallet = Address::generate(&e); // Simulate a burn wallet address
+
     let farm = FarmClient::new(&e, &e.register_contract(None, crate::Farm {}));
 
     // Initialize the farm contract
     let result = farm.initialize(
         &admin,
         &rewarded_token1.address,
-        &rewarded_token2.address,
+        &Some(rewarded_token2.address.clone()),  // Wrapping the Address in Some()
         &install_token_wasm(&e),
         &(e.ledger().timestamp() + 10000),
+        &burn_wallet, // Pass burn wallet address
     );
     let expected = String::from_str(&e, "Ok");
 

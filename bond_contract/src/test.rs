@@ -14,7 +14,7 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
 
 fn install_token_wasm(e: &Env) -> BytesN<32> {
     // Ensure the path is correct relative to the current file
-    soroban_sdk::contractimport!(file = "./soroban_token_contract.wasm");
+    soroban_sdk::contractimport!(file = "../soroban_token_contract.wasm");
 
     // Upload the WASM contract to the environment
     e.deployer().upload_contract_wasm(WASM)

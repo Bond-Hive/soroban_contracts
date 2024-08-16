@@ -3,3 +3,9 @@ target
 
 # Local Soroban settings
 .soroban
+
+test_snapshots
+
+commands.txt
+
+list.txt

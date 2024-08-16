@@ -3,11 +3,9 @@
 mod token;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
-    String,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Map,
+    String, xdr::ToXdr, 
 };
-
-use token::create_contract;
 
 pub(crate) const DAY_IN_LEDGERS: u32 = 17280;
 pub(crate) const MAX_TTL: u32 = 3110400;
@@ -72,6 +70,15 @@ fn get_burn_wallet(e: &Env) -> Address {
         .instance()
         .get(&DataKey::BurnAddress)
         .expect("Burn wallet address not set")
+}
+
+fn create_contract(e: &Env, token_wasm_hash: BytesN<32>, token: &Address) -> Address {
+    let mut salt = Bytes::new(e);
+    salt.append(&token.to_xdr(e));
+    let salt = e.crypto().sha256(&salt);
+    e.deployer()
+        .with_current_contract(salt)
+        .deploy(token_wasm_hash)
 }
 
 fn has_sufficient_rewards(e: &Env, required1: i128, required2: i128) -> Result<bool, FarmError> {
@@ -726,3 +733,5 @@ impl Farm {
         Ok((rewarded_token1, rewarded_token2))
     }
 }
+
+mod test;

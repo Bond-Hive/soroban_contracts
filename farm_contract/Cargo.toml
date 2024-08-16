@@ -7,11 +7,11 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = { version = "21.4.0" }
-num-integer = { version = "0.1.45", default-features = false, features = ["i128"] }
+soroban-sdk = { workspace = true }
+num-integer = { workspace = true }
 
 [dev-dependencies]
-soroban-sdk = { version = "21.4.0", features = ["testutils"] }
+soroban-sdk = { workspace = true, features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]

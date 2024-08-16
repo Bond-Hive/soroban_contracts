@@ -4,10 +4,8 @@ mod token;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, symbol_short, Address, BytesN, ConversionError, Env,
-    IntoVal, String, TryFromVal, Val,
+    IntoVal, String, TryFromVal, Val, xdr::ToXdr, Bytes
 };
-
-use token::create_contract;
 
 pub(crate) const DAY_IN_LEDGERS: u32 = 17280;
 pub(crate) const MAX_TTL: u32 = 3110400;
@@ -248,6 +246,15 @@ fn mint_shares(e: &Env, to: Address, amount: i128) -> Result<(), VaultError> {
     );
 
     Ok(())
+}
+
+fn create_contract(e: &Env, token_wasm_hash: BytesN<32>, token: &Address) -> Address {
+    let mut salt = Bytes::new(e);
+    salt.append(&token.to_xdr(e));
+    let salt = e.crypto().sha256(&salt);
+    e.deployer()
+        .with_current_contract(salt)
+        .deploy(token_wasm_hash)
 }
 
 fn check_nonnegative_amount(amount: i128) -> Result<(), VaultError> {
