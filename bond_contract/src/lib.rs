@@ -27,6 +27,7 @@ pub enum DataKey {
     QuotePeriod = 10,
     Treasury = 11,
     MinDeposit = 12,
+    Initialized = 13,
 }
 
 impl TryFromVal<Env, DataKey> for Val {
@@ -265,6 +266,17 @@ fn check_nonnegative_amount(amount: i128) -> Result<(), VaultError> {
     }
 }
 
+fn is_initialized(e: &Env) -> Result<bool, VaultError> {
+    Ok(e.storage()
+        .instance()
+        .get(&DataKey::Initialized)
+        .unwrap_or(0) == 1)
+}
+
+fn set_initialized(e: &Env) {
+    e.storage().instance().set(&DataKey::Initialized, &1);
+}
+
 pub trait VaultTrait {
     // Sets the token contract addresses for this vault
     fn initialize(
@@ -333,6 +345,11 @@ impl VaultTrait for Vault {
         min_deposit: u128,
         bond_symbol: String,
     ) -> Result<String, VaultError> {
+        // Check if the contract is already initialized
+        if is_initialized(&e)? {
+            return Err(VaultError::AlreadyInitialized);
+        }
+
         let share_contract_id = create_contract(&e, token_wasm_hash, &token);
         token::Client::new(&e, &share_contract_id).initialize(
             &e.current_contract_address(),
@@ -353,6 +370,8 @@ impl VaultTrait for Vault {
         put_quote_period(&e, quote_period);
         put_treasury(&e, treasury);
         put_min_deposit(&e, min_deposit);
+
+        set_initialized(&e);
 
         e.events().publish(
             (symbol_short!("VAULT"), symbol_short!("init")),

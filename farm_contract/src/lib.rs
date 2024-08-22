@@ -25,6 +25,7 @@ pub enum DataKey {
     UserMap = 8,           // DataKey for User Data Map
     Maturity = 9,          // DataKey for Maturity
     BurnAddress = 10,      // Store the burn wallet address
+    Initialized = 11,      // DataKey to track if the contract is initialized
 }
 
 #[contracterror]
@@ -42,6 +43,7 @@ pub enum FarmError {
     SameRewardTokens = 9,           // Error when both reward tokens are the same
     TokenConflict = 10,             // Error when farm token conflicts with reward tokens
     InsufficientReceiptTokens = 11, // Error when user has insufficient receipt tokens
+    AlreadyInitialized = 12,        // Error when trying to initialize an already initialized contract
 }
 
 #[derive(Clone)]
@@ -306,6 +308,17 @@ fn get_pool_counter(e: &Env) -> Result<u32, FarmError> {
         .unwrap_or(Ok(0))
 }
 
+fn is_initialized(e: &Env) -> Result<bool, FarmError> {
+    Ok(e.storage()
+        .instance()
+        .get(&DataKey::Initialized)
+        .unwrap_or(0) == 1)
+}
+
+fn set_initialized(e: &Env) {
+    e.storage().instance().set(&DataKey::Initialized, &1);
+}
+
 #[contractimpl]
 impl Farm {
     pub fn initialize(
@@ -317,6 +330,11 @@ impl Farm {
         maturity: u64,
         burn_wallet: Address, // Accept burn wallet address during initialization
     ) -> Result<String, FarmError> {
+        // Check if the contract is already initialized
+        if is_initialized(e)? {
+            return Err(FarmError::AlreadyInitialized);
+        }
+
         // Store the burn wallet address
         e.storage()
             .instance()
@@ -349,6 +367,8 @@ impl Farm {
         put_maturity(e, maturity);
         put_allocated_rewards(e, 0, 0); // Initialize global allocated rewards
         put_pool_counter(e, 0); // Initialize pool counter
+
+        set_initialized(e);
 
         Ok(String::from_str(e, "Ok"))
     }
