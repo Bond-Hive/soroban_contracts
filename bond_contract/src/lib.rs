@@ -28,6 +28,7 @@ pub enum DataKey {
     Treasury = 11,
     MinDeposit = 12,
     Initialized = 13,
+    Stopped = 14,
 }
 
 impl TryFromVal<Env, DataKey> for Val {
@@ -51,6 +52,8 @@ pub enum VaultError {
     QuoteRequired = 7,
     AvailableRedemptionNotSet = 8,
     AvailableRedemptionAlreadySet = 9,
+    QuoteMismatch = 10,
+    ContractStopped = 11,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -152,6 +155,14 @@ fn get_treasury(e: &Env) -> Result<Address, VaultError> {
         .instance()
         .get(&DataKey::Treasury)
         .ok_or(VaultError::NotInitialized)
+}
+
+fn get_stopped(e: &Env) -> bool {
+    e.storage().instance().get(&DataKey::Stopped).unwrap_or(0) == 1
+}
+
+fn set_stopped(e: &Env, stopped: bool) {
+    e.storage().instance().set(&DataKey::Stopped, &if stopped { 1 } else { 0 });
 }
 
 fn time(e: &Env) -> u64 {
@@ -278,7 +289,6 @@ fn set_initialized(e: &Env) {
 }
 
 pub trait VaultTrait {
-    // Sets the token contract addresses for this vault
     fn initialize(
         e: Env,
         token_wasm_hash: BytesN<32>,
@@ -298,7 +308,7 @@ pub trait VaultTrait {
     // Deposits token. Also mints vault shares for the `from` Identifier. The amount minted
     // is determined based on the difference between the reserves stored by this contract, and
     // the actual balance of token for this contract.
-    fn deposit(e: Env, from: Address, amount: i128) -> Result<i128, VaultError>;
+    fn deposit(e: Env, from: Address, amount: i128, provided_quote: i128) -> Result<i128, VaultError>;
 
     // transfers `amount` of vault share tokens to this contract, burns all pools share tokens in this contracts, and sends the
     // corresponding amount of token to `to`.
@@ -319,13 +329,15 @@ pub trait VaultTrait {
 
     fn quote(e: Env) -> Result<i128, VaultError>;
 
-    fn set_quote(e: Env, amount: i128) -> Result<i128, VaultError>; // Updated return type
+    fn set_quote(e: Env, amount: i128) -> Result<i128, VaultError>;
 
-    fn set_total_redemption(e: Env, amount: i128) -> Result<i128, VaultError>; // Updated return type
+    fn set_total_redemption(e: Env, amount: i128) -> Result<i128, VaultError>;
 
-    fn set_treasury(e: Env, treasury: Address) -> Result<Address, VaultError>; // Updated return type
+    fn set_treasury(e: Env, treasury: Address) -> Result<Address, VaultError>;
 
-    fn set_admin(e: Env, new_admin: Address) -> Result<Address, VaultError>; // Updated return type
+    fn set_admin(e: Env, new_admin: Address) -> Result<Address, VaultError>;
+
+    fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError>;
 }
 
 #[contract]
@@ -372,6 +384,7 @@ impl VaultTrait for Vault {
         put_min_deposit(&e, min_deposit);
 
         set_initialized(&e);
+        set_stopped(&e, false);
 
         e.events().publish(
             (symbol_short!("VAULT"), symbol_short!("init")),
@@ -380,6 +393,21 @@ impl VaultTrait for Vault {
 
         Ok(String::from_str(&e, "Ok"))
     }
+
+fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
+        let admin = get_admin(&e)?;
+        admin.require_auth();
+
+        set_stopped(&e, stopped);
+
+        e.events().publish(
+            (symbol_short!("VAULT"), symbol_short!("stopped")),
+            stopped,
+        );
+
+        Ok(())
+    }
+
 
     fn quote(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
@@ -406,9 +434,12 @@ impl VaultTrait for Vault {
         get_token_share(&e)
     }
 
-    fn deposit(e: Env, from: Address, amount: i128) -> Result<i128, VaultError> {
-        // Depositor needs to authorize the deposit
+    fn deposit(e: Env, from: Address, amount: i128, provided_quote: i128) -> Result<i128, VaultError> {
         from.require_auth();
+
+        if get_stopped(&e) {
+            return Err(VaultError::ContractStopped);
+        }
 
         check_nonnegative_amount(amount)?;
         extend_instance_ttl(&e);
@@ -420,12 +451,17 @@ impl VaultTrait for Vault {
         if time(&e) < get_start_time(&e)? {
             return Err(VaultError::NotOpenYet);
         }
+
         if amount < get_min_deposit(&e)? as i128 {
             return Err(VaultError::InvalidAmount);
         }
 
-        let quote = get_current_quote(&e)?;
-        let quantity = amount * quote / 10i128.pow(DECIMALS);
+        let current_quote = get_current_quote(&e)?;
+        if current_quote != provided_quote {
+            return Err(VaultError::QuoteMismatch);
+        }
+
+        let quantity = amount * provided_quote / 10i128.pow(DECIMALS);
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&from, &get_treasury(&e)?, &amount);
 
@@ -460,7 +496,7 @@ impl VaultTrait for Vault {
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&e.current_contract_address(), &to, &asset_amount);
 
-        burn_shares(&e, amount)?; // Only burn the original amount of shares
+        burn_shares(&e, amount)?;
         put_available_redemption(&e, available_redemption - asset_amount);
 
         Ok(asset_amount)
