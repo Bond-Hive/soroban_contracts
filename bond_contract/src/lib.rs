@@ -3,8 +3,8 @@
 mod token;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, Address, BytesN, ConversionError, Env,
-    IntoVal, String, TryFromVal, Val, xdr::ToXdr, Bytes
+    contract, contracterror, contractimpl, symbol_short, xdr::ToXdr, Address, Bytes, BytesN,
+    ConversionError, Env, IntoVal, String, TryFromVal, Val,
 };
 
 pub(crate) const DAY_IN_LEDGERS: u32 = 17280;
@@ -52,8 +52,8 @@ pub enum VaultError {
     QuoteRequired = 7,
     AvailableRedemptionNotSet = 8,
     AvailableRedemptionAlreadySet = 9,
-    QuoteMismatch = 10,
-    ContractStopped = 11,
+    ContractStopped = 10,
+    QuoteStillValid = 11,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -162,7 +162,9 @@ fn get_stopped(e: &Env) -> bool {
 }
 
 fn set_stopped(e: &Env, stopped: bool) {
-    e.storage().instance().set(&DataKey::Stopped, &if stopped { 1 } else { 0 });
+    e.storage()
+        .instance()
+        .set(&DataKey::Stopped, &if stopped { 1 } else { 0 });
 }
 
 fn time(e: &Env) -> u64 {
@@ -281,7 +283,8 @@ fn is_initialized(e: &Env) -> Result<bool, VaultError> {
     Ok(e.storage()
         .instance()
         .get(&DataKey::Initialized)
-        .unwrap_or(0) == 1)
+        .unwrap_or(0)
+        == 1)
 }
 
 fn set_initialized(e: &Env) {
@@ -308,7 +311,11 @@ pub trait VaultTrait {
     // Deposits token. Also mints vault shares for the `from` Identifier. The amount minted
     // is determined based on the difference between the reserves stored by this contract, and
     // the actual balance of token for this contract.
-    fn deposit(e: Env, from: Address, amount: i128, provided_quote: i128) -> Result<i128, VaultError>;
+    fn deposit(
+        e: Env,
+        from: Address,
+        amount: i128,
+    ) -> Result<i128, VaultError>;
 
     // transfers `amount` of vault share tokens to this contract, burns all pools share tokens in this contracts, and sends the
     // corresponding amount of token to `to`.
@@ -394,7 +401,7 @@ impl VaultTrait for Vault {
         Ok(String::from_str(&e, "Ok"))
     }
 
-fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
+    fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
 
@@ -408,7 +415,6 @@ fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
         Ok(())
     }
 
-
     fn quote(e: Env) -> Result<i128, VaultError> {
         extend_instance_ttl(&e);
         get_current_quote(&e).or_else(|_| Ok(0))
@@ -417,16 +423,30 @@ fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
     fn set_quote(e: Env, amount: i128) -> Result<i128, VaultError> {
         let admin = get_admin(&e)?;
         admin.require_auth();
-
-        check_nonnegative_amount(amount)?;
-        extend_instance_ttl(&e);
-        put_current_quote(&e, amount);
-        put_quote_expiration(&e)?;
-
-        e.events()
-            .publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
-
-        Ok(amount)
+    
+        // Attempt to get the current quote, handle specific errors
+        match get_current_quote(&e) {
+            Ok(_) => {
+                // If the current quote is valid, return an error
+                return Err(VaultError::QuoteStillValid);
+            },
+            Err(VaultError::NotInitialized) | Err(VaultError::QuoteRequired) => {
+                // Proceed with setting the new quote if the current one is not initialized or required
+                check_nonnegative_amount(amount)?;
+                extend_instance_ttl(&e);
+                put_current_quote(&e, amount);
+                put_quote_expiration(&e)?;
+    
+                e.events()
+                    .publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
+    
+                Ok(amount)
+            },
+            Err(e) => {
+                // For any other error, propagate it
+                Err(e)
+            }
+        }
     }
 
     fn bond_id(e: Env) -> Result<Address, VaultError> {
@@ -434,7 +454,11 @@ fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
         get_token_share(&e)
     }
 
-    fn deposit(e: Env, from: Address, amount: i128, provided_quote: i128) -> Result<i128, VaultError> {
+    fn deposit(
+        e: Env,
+        from: Address,
+        amount: i128,
+    ) -> Result<i128, VaultError> {
         from.require_auth();
 
         if get_stopped(&e) {
@@ -457,11 +481,8 @@ fn set_contract_stopped(e: Env, stopped: bool) -> Result<(), VaultError> {
         }
 
         let current_quote = get_current_quote(&e)?;
-        if current_quote != provided_quote {
-            return Err(VaultError::QuoteMismatch);
-        }
 
-        let quantity = amount * provided_quote / 10i128.pow(DECIMALS);
+        let quantity = amount * current_quote / 10i128.pow(DECIMALS);
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&from, &get_treasury(&e)?, &amount);
 
