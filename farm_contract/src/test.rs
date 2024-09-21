@@ -3,9 +3,8 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, MockAuth, MockAuthInvoke},
-    token::TokenClient,
-    Address, Env, String, IntoVal
+    testutils::{Address as _, Ledger},
+    Address, Env, String
 };
 
 fn create_token_contract<'a>(

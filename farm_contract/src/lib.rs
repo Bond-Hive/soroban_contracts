@@ -285,8 +285,12 @@ fn set_initialized(e: &Env) {
     e.storage().instance().set(&DataKey::Initialized, &1);
 }
 
-fn put_stopped(e: &Env) {
-    e.storage().instance().set(&DataKey::Stopped, &1);
+fn put_stopped(e: &Env, stopped: bool) {
+    if stopped {
+        e.storage().instance().set(&DataKey::Stopped, &1);
+    } else {
+        e.storage().instance().remove(&DataKey::Stopped);
+    }
 }
 
 fn get_stopped(e: &Env) -> Result<bool, FarmError> {
@@ -634,7 +638,7 @@ impl Farm {
         put_admin(e, &new_admin);
 
         e.events()
-            .publish((symbol_short!("AdminChg"), new_admin.clone()), new_admin);
+            .publish((symbol_short!("AdminChg"), admin.clone()), new_admin);
 
         Ok(String::from_str(e, "Ok"))
     }
@@ -691,13 +695,13 @@ impl Farm {
         Ok((unallocated_rewards1, unallocated_rewards2))
     }
 
-    pub fn set_contract_stopped(e: &Env, admin: Address) -> Result<String, FarmError> {
+    pub fn set_contract_stopped(e: &Env, stopped: bool) -> Result<String, FarmError> {
         let current_admin = get_admin(e)?;
         current_admin.require_auth();
 
-        put_stopped(e);
+        put_stopped(e, stopped);
 
-        e.events().publish((symbol_short!("Stopped"), admin.clone()), ());
+        e.events().publish((symbol_short!("Stopped"), current_admin.clone()), stopped);
         Ok(String::from_str(e, "Contract stopped"))
     }
 
