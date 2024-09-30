@@ -172,26 +172,26 @@ fn get_allocated_rewards(e: &Env) -> Result<(i128, i128), FarmError> {
 
 fn put_pool_data(e: &Env, pool_id: u32, pool: Pool) {
     let storage_key = pool_data_key(pool_id);
-    e.storage().instance().set(&storage_key, &pool);
+    e.storage().persistent().set(&storage_key, &pool);
 }
 
 fn get_pool_data(e: &Env, pool_id: u32) -> Result<Pool, FarmError> {
     let storage_key = pool_data_key(pool_id);
     e.storage()
-        .instance()
+        .persistent()
         .get(&storage_key)
         .ok_or(FarmError::PoolNotFound)
 }
 
 fn put_user_data(e: &Env, user: Address, pool_id: u32, user_data: UserData) {
     let storage_key = user_data_key(user, pool_id);
-    e.storage().instance().set(&storage_key, &user_data);
+    e.storage().persistent().set(&storage_key, &user_data);
 }
 
 fn get_user_data(e: &Env, user: Address, pool_id: u32) -> Result<UserData, FarmError> {
     let storage_key = user_data_key(user, pool_id);
     e.storage()
-        .instance()
+        .persistent()
         .get(&storage_key)
         .ok_or(FarmError::UserNotFound)
 }
@@ -199,7 +199,7 @@ fn get_user_data(e: &Env, user: Address, pool_id: u32) -> Result<UserData, FarmE
 /// Remove user data from storage.
 fn remove_user_data(e: &Env, user: &Address, pool_id: u32) -> Result<(), FarmError> {
     let storage_key = user_data_key(user.clone(), pool_id);
-    e.storage().instance().remove(&storage_key);
+    e.storage().persistent().remove(&storage_key);
     Ok(())
 }
 

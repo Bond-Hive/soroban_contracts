@@ -54,6 +54,8 @@ pub enum VaultError {
     AvailableRedemptionAlreadySet = 9,
     ContractStopped = 10,
     QuoteStillValid = 11,
+    QuoteChanged = 12,
+    QuoteExpired = 13,
 }
 
 fn get_token(e: &Env) -> Result<Address, VaultError> {
@@ -136,7 +138,7 @@ fn get_current_quote(e: &Env) -> Result<i128, VaultError> {
         if time(&e) <= quote_expiration {
             Ok(current_quote)
         } else {
-            Err(VaultError::QuoteRequired)
+            Err(VaultError::QuoteExpired)
         }
     } else {
         Err(VaultError::QuoteRequired)
@@ -202,8 +204,8 @@ fn put_current_quote(e: &Env, amount: i128) {
 }
 
 fn put_quote_expiration(e: &Env) -> Result<(), VaultError> {
-    let time = time(e) + get_quote_period(e)?;
-    e.storage().instance().set(&DataKey::QuoteExpiration, &time);
+    let expiration_time = time(e) + get_quote_period(e)?;
+    e.storage().instance().set(&DataKey::QuoteExpiration, &expiration_time);
     Ok(())
 }
 
@@ -315,6 +317,7 @@ pub trait VaultTrait {
         e: Env,
         from: Address,
         amount: i128,
+        expected_quote: i128,
     ) -> Result<i128, VaultError>;
 
     // transfers `amount` of vault share tokens to this contract, burns all pools share tokens in this contracts, and sends the
@@ -430,22 +433,19 @@ impl VaultTrait for Vault {
                 // If the current quote is valid, return an error
                 return Err(VaultError::QuoteStillValid);
             },
-            Err(VaultError::NotInitialized) | Err(VaultError::QuoteRequired) => {
+            Err(VaultError::NotInitialized) | Err(VaultError::QuoteRequired) | Err(VaultError::QuoteExpired) => {
                 // Proceed with setting the new quote if the current one is not initialized or required
                 check_nonnegative_amount(amount)?;
                 extend_instance_ttl(&e);
                 put_current_quote(&e, amount);
                 put_quote_expiration(&e)?;
-    
+
                 e.events()
                     .publish((symbol_short!("QUOTE"), symbol_short!("set")), amount);
-    
+
                 Ok(amount)
             },
-            Err(e) => {
-                // For any other error, propagate it
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -458,6 +458,7 @@ impl VaultTrait for Vault {
         e: Env,
         from: Address,
         amount: i128,
+        expected_quote: i128,
     ) -> Result<i128, VaultError> {
         from.require_auth();
 
@@ -482,7 +483,12 @@ impl VaultTrait for Vault {
 
         let current_quote = get_current_quote(&e)?;
 
+        if current_quote != expected_quote {
+            return Err(VaultError::QuoteChanged);
+        }
+
         let quantity = amount * current_quote / 10i128.pow(DECIMALS);
+
         let token_client = token::Client::new(&e, &get_token(&e)?);
         token_client.transfer(&from, &get_treasury(&e)?, &amount);
 

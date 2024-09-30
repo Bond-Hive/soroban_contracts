@@ -28,7 +28,7 @@ fn test_not_double_initialization() {
 
     let rewarded_token1 = create_token_contract(&e, &admin);
     let rewarded_token2 = create_token_contract(&e, &admin);
-    let token = create_token_contract(&e, &admin);
+    let pool_token = create_token_contract(&e, &admin);
 
     let farm = FarmClient::new(&e, &e.register_contract(None, crate::Farm {}));
 
@@ -37,13 +37,13 @@ fn test_not_double_initialization() {
         &admin,
         &rewarded_token1.0.address,
         &Some(rewarded_token2.0.address.clone()),
-        &token.0.address,
+        &pool_token.0.address,
         &(e.ledger().timestamp() + 10000),
         &10,
         &Some(10),
     );
     let expected = String::from_str(&e, "Ok");
-    // Ensure the vault initialization returned "Ok"
+    // Ensure the farm initialization returned "Ok"
     assert_eq!(result, expected);
 
     let rewarded_token3 = create_token_contract(&e, &admin);
@@ -65,7 +65,7 @@ fn test_not_double_initialization() {
 
 #[test]
 #[should_panic(expected = "HostError: Error(Contract, #6)")]
-fn deposit_without_rewards() {
+fn deposit_without_sufficient_rewards() {
     let e = Env::default();
     e.mock_all_auths();
 
@@ -74,10 +74,10 @@ fn deposit_without_rewards() {
 
     let rewarded_token1 = create_token_contract(&e, &admin);
     let rewarded_token2 = create_token_contract(&e, &admin);
-    let token = create_token_contract(&e, &admin);
-    let token_admin_client = token.1;
+    let pool_token = create_token_contract(&e, &admin);
+    let pool_token_admin = pool_token.1;
 
-    token_admin_client.mint(&user, &1000);
+    pool_token_admin.mint(&user, &1000);
 
     let farm = FarmClient::new(&e, &e.register_contract(None, crate::Farm {}));
 
@@ -86,14 +86,14 @@ fn deposit_without_rewards() {
         &admin,
         &rewarded_token1.0.address,
         &Some(rewarded_token2.0.address.clone()),
-        &token.0.address,
+        &pool_token.0.address,
         &(e.ledger().timestamp() + 10000),
         &100000000,
         &Some(100000000),
     );
     let expected = String::from_str(&e, "Ok");
 
-    // Ensure the vault initialization returned "Ok"
+    // Ensure the farm initialization returned "Ok"
     assert_eq!(result, expected);
 
     // Create a new pool
@@ -104,10 +104,9 @@ fn deposit_without_rewards() {
     );
     assert_eq!(pool_id, 0, "Pool creation failed");
 
-    // Deposit tokens into the pool
+    // Deposit tokens into the pool without minting enough rewards
     let deposit_amount = 10;
-    let deposit_result = farm.deposit(&user, &deposit_amount, &pool_id);
-    assert!(deposit_result > 0);
+    farm.deposit(&user, &deposit_amount, &pool_id);
 }
 
 #[test]
@@ -143,7 +142,8 @@ fn test_withdraw_before_and_after_maturity() {
     );
     assert_eq!(result, String::from_str(&e, "Ok"));
 
-    let total_reward_amount = 50000000000; // The total amount of reward tokens to allocate
+    // Mint enough reward tokens to the farm contract to cover rewards
+    let total_reward_amount = 50000000000;
     rewarded_token1_admin.mint(&farm.address, &total_reward_amount);    
     rewarded_token2_admin.mint(&farm.address, &total_reward_amount);    
 
@@ -263,4 +263,69 @@ fn test_full_withdraw_before_maturity() {
     let expected_rewards = (deposit_amount as i128 * reward_ratio1 as i128 * time_elapsed as i128) / 10i128.pow(DECIMALS);
     let user_reward_balance = rewarded_token1_client.balance(&user);
     assert_eq!(user_reward_balance, expected_rewards);
+}
+
+#[test]
+fn test_full_withdraw_after_maturity() {
+    let e = Env::default();
+    e.mock_all_auths();
+
+    let admin = Address::generate(&e);
+    let user = Address::generate(&e);
+
+    let (rewarded_token1_client, rewarded_token1_admin) = create_token_contract(&e, &admin);
+    let (pool_token_client, pool_token_admin) = create_token_contract(&e, &admin);
+
+    pool_token_admin.mint(&user, &1000);
+
+    let farm = FarmClient::new(&e, &e.register_contract(None, crate::Farm {}));
+    let maturity = e.ledger().timestamp() + 10000;
+    let max_reward_ratio1 = 100000000;
+
+    let result = farm.initialize(
+        &admin,
+        &rewarded_token1_client.address,
+        &None,
+        &pool_token_client.address,
+        &maturity,
+        &max_reward_ratio1,
+        &None,
+    );
+    assert_eq!(result, String::from_str(&e, "Ok"));
+
+    rewarded_token1_admin.mint(&farm.address, &50000000);
+
+    let reward_ratio1 = 10000000;
+    let pool_id = farm.create_pool(
+        &e.ledger().timestamp(),
+        &reward_ratio1,
+        &None,
+    );
+    assert_eq!(pool_id, 0);
+
+    let deposit_amount = 1;
+    let deposit_result = farm.deposit(&user, &deposit_amount, &pool_id);
+    assert_eq!(deposit_result, deposit_amount);
+
+    let time_elapsed = 10000;
+    e.ledger().set_timestamp(e.ledger().timestamp() + time_elapsed + 1);
+
+    // Withdraw full amount after maturity
+    let withdraw_result = farm.withdraw(&user, &deposit_amount, &pool_id);
+    assert_eq!(withdraw_result, deposit_amount);
+
+    // Check user's pool token balance
+    let user_pool_token_balance = pool_token_client.balance(&user);
+    assert_eq!(user_pool_token_balance, 1000);
+
+    // Check user's reward token balance
+    let expected_rewards = (deposit_amount as i128 * reward_ratio1 as i128 * time_elapsed as i128) / 10i128.pow(DECIMALS);
+    let user_reward_balance = rewarded_token1_client.balance(&user);
+    assert_eq!(user_reward_balance, expected_rewards);
+
+    let contract_reward_balance = rewarded_token1_client.balance(&farm.address);
+
+    // Withdraw unallocated rewards
+    let unallocated_rewards = farm.withdraw_unallocated_rewards();
+    assert_eq!(unallocated_rewards.0, contract_reward_balance);
 }

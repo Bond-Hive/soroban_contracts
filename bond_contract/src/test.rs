@@ -101,9 +101,10 @@ fn try_deposit_without_quote() {
     token_client.mint(&user, &1000);
 
     let deposit_amount = 200;
+    let desired_quote = 10000000;
 
     // Try to deposit before setting quote
-    vault.deposit(&user, &deposit_amount);
+    vault.deposit(&user, &deposit_amount, &desired_quote);
 }
 
 /// Test withdrawing funds before the contract reaches maturity
@@ -138,7 +139,7 @@ fn test_withdraw_before_maturity() {
 
     // Set the quote and deposit
     vault.set_quote(&10000000);
-    vault.deposit(&user, &200);
+    vault.deposit(&user, &200, &10000000);
 
     // Attempt to withdraw before maturity, which should fail
     vault.withdraw(&user, &200);
@@ -175,9 +176,9 @@ fn test_contract_pause_deposit() {
 
     // Set the quote and deposit
     vault.set_quote(&10000000);
-    vault.deposit(&user, &200);
+    vault.deposit(&user, &200, &10000000);
     vault.set_contract_stopped(&true);
-    vault.deposit(&user, &200);
+    vault.deposit(&user, &200, &10000000);
 }
 
 #[test]
@@ -248,9 +249,9 @@ fn test_full() {
     // Mint tokens to the user to deposit
     token_client.mint(&user, &1000);
 
-        // Set the quote
-        let set_quote_result = vault.set_quote(&10000000);
-        assert_eq!(set_quote_result, 10000000);
+    // Set the quote
+    let set_quote_result = vault.set_quote(&10000000);
+    assert_eq!(set_quote_result, 10000000);
 
     let deposit_amount = 200;
 
@@ -260,9 +261,8 @@ fn test_full() {
     let share_balance = share_client.balance(&user);
     assert_eq!(share_balance, 0);
     
-    // Try to deposit before setting quote
-    let deposit_result = vault.deposit(&user, &deposit_amount);
-    // ensure the returned number is greater than 0
+    // Try to deposit using the expected quote
+    let deposit_result = vault.deposit(&user, &deposit_amount, &10000000);
     assert_eq!(deposit_result, 200);
 
     let total_deposit = vault.total_deposit();
@@ -406,7 +406,7 @@ fn send_bonds_to_another_wallet_and_withdraw() {
 
     // Set the quote and deposit from user1
     vault.set_quote(&10000000);
-    vault.deposit(&user1, &200);
+    vault.deposit(&user1, &200, &10000000);
 
     // Transfer bonds from user1 to user2
     let bond_id = vault.bond_id();
