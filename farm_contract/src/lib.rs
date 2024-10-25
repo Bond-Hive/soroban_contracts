@@ -738,7 +738,36 @@ impl Farm {
     /// Public function to query a user's data for a specific pool.
     pub fn get_user_info(e: &Env, user: Address, pool_id: u32) -> Result<UserData, FarmError> {
         extend_instance_ttl(e);
-        get_user_data(e, user, pool_id)
+        let mut user_data = get_user_data(e, user.clone(), pool_id)?;
+
+        let pool = get_pool_data(e, pool_id)?;
+        let current_time = time(e);
+
+        // Calculate time elapsed since the last deposit or rewards update
+        let maturity = get_maturity(e)?;
+        let time_elapsed = core::cmp::min(
+            current_time - user_data.deposit_time,
+            maturity - user_data.deposit_time,
+        );
+
+        // Calculate current accrued rewards
+        let accrued_yield1 = if pool.reward_ratio1 > 0 {
+            (user_data.deposited * pool.reward_ratio1 * time_elapsed as i128) / 10i128.pow(DECIMALS)
+        } else {
+            0
+        };
+
+        let accrued_yield2 = if pool.reward_ratio2 > 0 && get_rewarded_token2(e)?.is_some() {
+            (user_data.deposited * pool.reward_ratio2 * time_elapsed as i128) / 10i128.pow(DECIMALS)
+        } else {
+            0
+        };
+
+        // Update the user data with current accrued rewards
+        user_data.accrued_rewards1 += accrued_yield1;
+        user_data.accrued_rewards2 += accrued_yield2;
+
+        Ok(user_data)
     }
 
     /// Public function to query the reward token addresses.
